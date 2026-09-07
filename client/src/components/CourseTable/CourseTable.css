@@ -1,0 +1,32 @@
+.course-table{
+    width:100%;
+    border-collapse:collapse;
+    background:white;
+    border-radius:12px;
+    overflow:hidden;
+    box-shadow:0 4px 12px rgba(0,0,0,.08);
+}
+
+.course-table th{
+    background:#2563eb;
+    color:white;
+    padding:15px;
+}
+
+.course-table td{
+    padding:15px;
+    border-bottom:1px solid #eee;
+}
+
+.course-table button{
+    margin-right:8px;
+    padding:8px 14px;
+    border:none;
+    border-radius:6px;
+    cursor:pointer;
+}
+
+.course-table .delete{
+    background:#dc2626;
+    color:white;
+}

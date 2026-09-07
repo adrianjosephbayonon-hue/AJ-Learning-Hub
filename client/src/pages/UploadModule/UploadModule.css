@@ -1,0 +1,41 @@
+.upload-module{
+    background:white;
+    padding:30px;
+    border-radius:12px;
+    box-shadow:0 4px 12px rgba(0,0,0,.08);
+}
+
+.upload-module form{
+    display:flex;
+    flex-direction:column;
+}
+
+.upload-module label{
+    margin-top:15px;
+    margin-bottom:5px;
+    font-weight:bold;
+}
+
+.upload-module input,
+.upload-module textarea{
+    padding:12px;
+    border:1px solid #ddd;
+    border-radius:8px;
+}
+
+.selected-file{
+    margin-top:20px;
+    background:#f5f5f5;
+    padding:15px;
+    border-radius:8px;
+}
+
+.upload-module button{
+    margin-top:25px;
+    background:#2563eb;
+    color:white;
+    border:none;
+    padding:12px;
+    border-radius:8px;
+    cursor:pointer;
+}

@@ -1,0 +1,26 @@
+.submit-container{
+    background:white;
+    padding:30px;
+    border-radius:12px;
+    box-shadow:0 4px 12px rgba(0,0,0,.08);
+}
+
+.submit-container input{
+    margin:20px 0;
+}
+
+.file-preview{
+    background:#f8f9fa;
+    padding:20px;
+    border-radius:10px;
+    margin-bottom:20px;
+}
+
+.submit-btn{
+    background:#2563eb;
+    color:white;
+    border:none;
+    padding:12px 25px;
+    border-radius:8px;
+    cursor:pointer;
+}

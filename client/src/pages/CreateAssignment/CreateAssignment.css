@@ -1,0 +1,34 @@
+.create-assignment{
+    background:white;
+    padding:30px;
+    border-radius:12px;
+    box-shadow:0 4px 12px rgba(0,0,0,.08);
+}
+
+.create-assignment form{
+    display:flex;
+    flex-direction:column;
+}
+
+.create-assignment label{
+    margin-top:15px;
+    margin-bottom:5px;
+    font-weight:bold;
+}
+
+.create-assignment input,
+.create-assignment textarea{
+    padding:12px;
+    border:1px solid #ddd;
+    border-radius:8px;
+}
+
+.create-assignment button{
+    margin-top:25px;
+    background:#2563eb;
+    color:white;
+    border:none;
+    padding:12px;
+    border-radius:8px;
+    cursor:pointer;
+}
