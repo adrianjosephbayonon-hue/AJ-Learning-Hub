@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useAuth } from "../../contexts/AuthContext";
+import { useAuth } from "../../contexts/useAuth";
 
 function Dashboard() {
   const { user } = useAuth();
@@ -13,126 +13,131 @@ function Dashboard() {
   const isInstructor = user?.role === "instructor";
 
   // =====================================================
-  // FETCH DASHBOARD DATA
-  // =====================================================
-
-  const fetchDashboardData = async () => {
-    try {
-      setLoading(true);
-
-      const token = localStorage.getItem("aj_token");
-
-      // Authorization header used by protected API routes
-      const headers = {
-        Authorization: `Bearer ${token}`,
-      };
-
-      // -------------------------------------------------
-      // COURSES
-      // -------------------------------------------------
-
-      const coursesResponse = await fetch(
-        "http://localhost:5000/api/courses",
-        {
-          headers,
-        }
-      );
-
-      if (coursesResponse.ok) {
-        const coursesData = await coursesResponse.json();
-        setCourses(coursesData);
-      } else {
-        console.error(
-          "Failed to fetch courses:",
-          coursesResponse.status
-        );
-      }
-
-      // -------------------------------------------------
-      // ASSIGNMENTS
-      // -------------------------------------------------
-
-      const assignmentsResponse = await fetch(
-        "http://localhost:5000/api/assignments",
-        {
-          headers,
-        }
-      );
-
-      if (assignmentsResponse.ok) {
-        const assignmentsData =
-          await assignmentsResponse.json();
-
-        setAssignments(assignmentsData);
-      } else {
-        console.error(
-          "Failed to fetch assignments:",
-          assignmentsResponse.status
-        );
-      }
-
-      // -------------------------------------------------
-      // SUBMISSIONS
-      // -------------------------------------------------
-
-      if (isInstructor) {
-        const submissionsResponse = await fetch(
-          "http://localhost:5000/api/submissions/all",
-          {
-            headers,
-          }
-        );
-
-        if (submissionsResponse.ok) {
-          const submissionsData =
-            await submissionsResponse.json();
-
-          setSubmissions(submissionsData);
-        } else {
-          console.error(
-            "Failed to fetch submissions:",
-            submissionsResponse.status
-          );
-        }
-      } else {
-        const submissionsResponse = await fetch(
-          "http://localhost:5000/api/submissions/my-submissions",
-          {
-            headers,
-          }
-        );
-
-        if (submissionsResponse.ok) {
-          const submissionsData =
-            await submissionsResponse.json();
-
-          setSubmissions(submissionsData);
-        } else {
-          console.error(
-            "Failed to fetch submissions:",
-            submissionsResponse.status
-          );
-        }
-      }
-    } catch (error) {
-      console.error(
-        "Error loading dashboard:",
-        error
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // =====================================================
-  // LOAD DATA
+  // LOAD DASHBOARD DATA
   // =====================================================
 
   useEffect(() => {
-    if (user) {
-      fetchDashboardData();
-    }
-  }, [user]);
+  if (!user) {
+    return;
+  }
+
+    const controller = new AbortController();
+
+    const loadDashboardData = async () => {
+      try {
+        const token = localStorage.getItem("aj_token");
+
+        if (!token) {
+          console.error("No authentication token found.");
+          setLoading(false);
+          return;
+        }
+
+        const headers = {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        };
+
+        // -------------------------------------------------
+        // FETCH COURSES, ASSIGNMENTS, AND SUBMISSIONS
+        // -------------------------------------------------
+
+        const submissionsUrl = isInstructor
+          ? "http://localhost:5000/api/submissions/all"
+          : "http://localhost:5000/api/submissions/my-submissions";
+
+        const [
+          coursesResponse,
+          assignmentsResponse,
+          submissionsResponse,
+        ] = await Promise.all([
+          fetch("http://localhost:5000/api/courses", {
+            headers,
+            signal: controller.signal,
+          }),
+
+          fetch("http://localhost:5000/api/assignments", {
+            headers,
+            signal: controller.signal,
+          }),
+
+          fetch(submissionsUrl, {
+            headers,
+            signal: controller.signal,
+          }),
+        ]);
+
+        // -------------------------------------------------
+        // COURSES
+        // -------------------------------------------------
+
+        if (coursesResponse.ok) {
+          const coursesData = await coursesResponse.json();
+          setCourses(coursesData);
+        } else {
+          console.error(
+            "Failed to fetch courses:",
+            coursesResponse.status
+          );
+          setCourses([]);
+        }
+
+        // -------------------------------------------------
+        // ASSIGNMENTS
+        // -------------------------------------------------
+
+        if (assignmentsResponse.ok) {
+          const assignmentsData =
+            await assignmentsResponse.json();
+
+          setAssignments(assignmentsData);
+        } else {
+          console.error(
+            "Failed to fetch assignments:",
+            assignmentsResponse.status
+          );
+          setAssignments([]);
+        }
+
+        // -------------------------------------------------
+        // SUBMISSIONS
+        // -------------------------------------------------
+
+        if (submissionsResponse.ok) {
+          const submissionsData =
+            await submissionsResponse.json();
+
+          setSubmissions(submissionsData);
+        } else {
+          console.error(
+            "Failed to fetch submissions:",
+            submissionsResponse.status
+          );
+          setSubmissions([]);
+        }
+      } catch (error) {
+        // Ignore errors caused by cancelling the request
+        if (error.name === "AbortError") {
+          return;
+        }
+
+        console.error(
+          "Error loading dashboard:",
+          error
+        );
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadDashboardData();
+
+    return () => {
+      controller.abort();
+    };
+  }, [user, isInstructor]);
 
   // =====================================================
   // CALCULATE STATISTICS
