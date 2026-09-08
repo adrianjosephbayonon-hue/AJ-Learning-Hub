@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTheme } from "../../contexts/useTheme";
 
 // ============================
@@ -25,57 +25,23 @@ function Toggle({ enabled, onChange }) {
 }
 
 // ============================
-// LOAD SAVED SETTINGS
-// ============================
-
-function getSavedSettings() {
-  const defaultSettings = {
-    notifications: true,
-    emailNotifications: true,
-    profileVisibility: true,
-    activityStatus: true,
-  };
-
-  const savedSettings = localStorage.getItem("aj_settings");
-
-  if (!savedSettings) {
-    return defaultSettings;
-  }
-
-  try {
-    const settings = JSON.parse(savedSettings);
-
-    return {
-      notifications: settings.notifications ?? true,
-      emailNotifications: settings.emailNotifications ?? true,
-      profileVisibility: settings.profileVisibility ?? true,
-      activityStatus: settings.activityStatus ?? true,
-    };
-  } catch (error) {
-    console.error("Unable to load saved settings:", error);
-
-    return defaultSettings;
-  }
-}
-
-// ============================
 // SETTINGS
 // ============================
 
 function Settings() {
-  const { darkMode, toggleDarkMode } = useTheme();
+  const { darkMode, setDarkMode } = useTheme();
 
   // ============================
   // SETTINGS STATES
   // ============================
 
-  const [notifications, setNotifications] = useState(
-    () => getSavedSettings().notifications
-  );
+  const [notifications, setNotifications] = useState(true);
+  const [emailNotifications, setEmailNotifications] = useState(true);
+  const [profileVisibility, setProfileVisibility] = useState(true);
+  const [activityStatus, setActivityStatus] = useState(true);
 
-  const [emailNotifications, setEmailNotifications] = useState(
-    () => getSavedSettings().emailNotifications
-  );
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   // ============================
   // CHANGE PASSWORD STATES
@@ -84,48 +50,150 @@ function Settings() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   const [currentPassword, setCurrentPassword] = useState("");
-
   const [newPassword, setNewPassword] = useState("");
-
   const [confirmPassword, setConfirmPassword] = useState("");
 
   const [passwordMessage, setPasswordMessage] = useState("");
-
   const [passwordError, setPasswordError] = useState("");
-
   const [changingPassword, setChangingPassword] = useState(false);
 
   // ============================
-  // PRIVACY STATES
+  // PRIVACY MODAL
   // ============================
 
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
-  const [profileVisibility, setProfileVisibility] = useState(
-    () => getSavedSettings().profileVisibility
-  );
+  // ============================
+  // LOAD SETTINGS FROM DATABASE
+  // ============================
 
-  const [activityStatus, setActivityStatus] = useState(
-    () => getSavedSettings().activityStatus
-  );
+  useEffect(() => {
+    const loadSettings = async () => {
+      const token = localStorage.getItem("aj_token");
+
+      if (!token) {
+        setLoadingSettings(false);
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          "http://localhost:5000/api/settings",
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          console.error(
+            "Failed to load settings:",
+            data.message
+          );
+          return;
+        }
+
+        // ============================
+        // APPLY DATABASE SETTINGS
+        // ============================
+
+        setNotifications(data.notifications);
+        setEmailNotifications(data.email_notifications);
+        setProfileVisibility(data.profile_visibility);
+        setActivityStatus(data.activity_status);
+
+        // Update global dark mode
+        setDarkMode(data.dark_mode);
+
+        // Save a local copy as cache/fallback
+        localStorage.setItem(
+          "aj_settings",
+          JSON.stringify({
+            notifications: data.notifications,
+            emailNotifications: data.email_notifications,
+            darkMode: data.dark_mode,
+            profileVisibility: data.profile_visibility,
+            activityStatus: data.activity_status,
+          })
+        );
+      } catch (error) {
+        console.error("Load settings error:", error);
+      } finally {
+        setLoadingSettings(false);
+      }
+    };
+
+    loadSettings();
+  }, [setDarkMode]);
 
   // ============================
   // SAVE SETTINGS
   // ============================
 
-  const handleSave = () => {
-    localStorage.setItem(
-      "aj_settings",
-      JSON.stringify({
-        notifications,
-        emailNotifications,
-        darkMode,
-        profileVisibility,
-        activityStatus,
-      })
-    );
+  const handleSave = async () => {
+    const token = localStorage.getItem("aj_token");
 
-    alert("Settings saved successfully!");
+    if (!token) {
+      alert("You are not logged in. Please log in again.");
+      return;
+    }
+
+    try {
+      setSavingSettings(true);
+
+      const response = await fetch(
+        "http://localhost:5000/api/settings",
+        {
+          method: "PUT",
+
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+
+          body: JSON.stringify({
+            notifications,
+            emailNotifications,
+            darkMode,
+            profileVisibility,
+            activityStatus,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(
+          data.message || "Failed to save settings."
+        );
+        return;
+      }
+
+      // Save local cache
+      localStorage.setItem(
+        "aj_settings",
+        JSON.stringify({
+          notifications,
+          emailNotifications,
+          darkMode,
+          profileVisibility,
+          activityStatus,
+        })
+      );
+
+      alert("Settings saved successfully!");
+    } catch (error) {
+      console.error("Save settings error:", error);
+
+      alert("Unable to connect to the server.");
+    } finally {
+      setSavingSettings(false);
+    }
   };
 
   // ============================
@@ -138,13 +206,17 @@ function Settings() {
     setPasswordMessage("");
     setPasswordError("");
 
-    // Check if all fields are filled
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      setPasswordError("Please fill in all password fields.");
+    if (
+      !currentPassword ||
+      !newPassword ||
+      !confirmPassword
+    ) {
+      setPasswordError(
+        "Please fill in all password fields."
+      );
       return;
     }
 
-    // Check password length
     if (newPassword.length < 6) {
       setPasswordError(
         "New password must be at least 6 characters long."
@@ -152,13 +224,13 @@ function Settings() {
       return;
     }
 
-    // Check if passwords match
     if (newPassword !== confirmPassword) {
-      setPasswordError("New passwords do not match.");
+      setPasswordError(
+        "New passwords do not match."
+      );
       return;
     }
 
-    // Get JWT token
     const token = localStorage.getItem("aj_token");
 
     if (!token) {
@@ -174,7 +246,9 @@ function Settings() {
       const response = await fetch(
         "http://localhost:5000/api/auth/change-password",
         {
-          method: "POST",
+          // IMPORTANT:
+          // Backend uses PUT, not POST
+          method: "PUT",
 
           headers: {
             "Content-Type": "application/json",
@@ -190,27 +264,31 @@ function Settings() {
 
       const data = await response.json();
 
-      // Backend returned an error
       if (!response.ok) {
         setPasswordError(
-          data.message || "Failed to change password."
+          data.message ||
+            "Failed to change password."
         );
         return;
       }
 
-      // Password changed successfully
       setPasswordMessage(
-        data.message || "Password changed successfully!"
+        data.message ||
+          "Password changed successfully!"
       );
 
-      // Clear password fields
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     } catch (error) {
-      console.error("Change password error:", error);
+      console.error(
+        "Change password error:",
+        error
+      );
 
-      setPasswordError("Unable to connect to the server.");
+      setPasswordError(
+        "Unable to connect to the server."
+      );
     } finally {
       setChangingPassword(false);
     }
@@ -236,6 +314,26 @@ function Settings() {
   };
 
   // ============================
+  // LOADING SCREEN
+  // ============================
+
+  if (loadingSettings) {
+    return (
+      <div
+        className={`min-h-screen flex items-center justify-center ${
+          darkMode
+            ? "bg-gray-900 text-white"
+            : "bg-gray-50 text-gray-900"
+        }`}
+      >
+        <p className="text-gray-500 dark:text-gray-400">
+          Loading settings...
+        </p>
+      </div>
+    );
+  }
+
+  // ============================
   // PAGE
   // ============================
 
@@ -247,82 +345,49 @@ function Settings() {
           : "bg-gray-50 text-gray-900"
       }`}
     >
-      {/* ============================
-          HEADER
-      ============================ */}
+      {/* HEADER */}
 
       <div>
         <h1 className="text-3xl font-bold">
-          Settings ⚙️
+          Settings
         </h1>
 
-        <p
-          className={`mt-2 ${
-            darkMode
-              ? "text-gray-400"
-              : "text-gray-500"
-          }`}
-        >
-          Manage your AJ Learning Hub preferences.
+        <p className="mt-1 text-gray-500 dark:text-gray-400">
+          Manage your account and application preferences.
         </p>
       </div>
 
-      {/* ============================
-          NOTIFICATION SETTINGS
-      ============================ */}
+      {/* ============================ */}
+      {/* NOTIFICATIONS */}
+      {/* ============================ */}
 
       <div
-        className={`rounded-xl p-6 shadow transition-colors ${
+        className={`rounded-xl border p-6 shadow-sm ${
           darkMode
-            ? "bg-gray-800"
-            : "bg-white"
+            ? "border-gray-700 bg-gray-800"
+            : "border-gray-200 bg-white"
         }`}
       >
-        <h2
-          className={`text-xl font-bold ${
-            darkMode
-              ? "text-white"
-              : "text-gray-900"
-          }`}
-        >
+        <h2 className="text-xl font-semibold">
           Notifications
         </h2>
 
-        <p
-          className={`mt-1 ${
-            darkMode
-              ? "text-gray-400"
-              : "text-gray-500"
-          }`}
-        >
-          Control how you receive notifications.
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Choose how you want to receive notifications.
         </p>
 
         <div className="mt-6 space-y-5">
-          {/* Push Notifications */}
+
+          {/* Notifications */}
 
           <div className="flex items-center justify-between">
-            <div className="pr-6">
-              <p
-                className={`font-medium ${
-                  darkMode
-                    ? "text-white"
-                    : "text-gray-900"
-                }`}
-              >
-                Push Notifications
+            <div>
+              <p className="font-medium">
+                Notifications
               </p>
 
-              <p
-                className={`text-sm ${
-                  darkMode
-                    ? "text-gray-400"
-                    : "text-gray-500"
-                }`}
-              >
-                Receive notifications about
-                assignments, courses, and
-                announcements.
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Receive notifications about your courses and activities.
               </p>
             </div>
 
@@ -335,26 +400,13 @@ function Settings() {
           {/* Email Notifications */}
 
           <div className="flex items-center justify-between">
-            <div className="pr-6">
-              <p
-                className={`font-medium ${
-                  darkMode
-                    ? "text-white"
-                    : "text-gray-900"
-                }`}
-              >
+            <div>
+              <p className="font-medium">
                 Email Notifications
               </p>
 
-              <p
-                className={`text-sm ${
-                  darkMode
-                    ? "text-gray-400"
-                    : "text-gray-500"
-                }`}
-              >
-                Receive important updates through
-                email.
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Receive important updates through email.
               </p>
             </div>
 
@@ -363,259 +415,173 @@ function Settings() {
               onChange={setEmailNotifications}
             />
           </div>
+
         </div>
       </div>
 
-      {/* ============================
-          APPEARANCE
-      ============================ */}
+      {/* ============================ */}
+      {/* APPEARANCE */}
+      {/* ============================ */}
 
       <div
-        className={`rounded-xl p-6 shadow transition-colors ${
+        className={`rounded-xl border p-6 shadow-sm ${
           darkMode
-            ? "bg-gray-800"
-            : "bg-white"
+            ? "border-gray-700 bg-gray-800"
+            : "border-gray-200 bg-white"
         }`}
       >
-        <h2
-          className={`text-xl font-bold ${
-            darkMode
-              ? "text-white"
-              : "text-gray-900"
-          }`}
-        >
+        <h2 className="text-xl font-semibold">
           Appearance
         </h2>
 
-        <p
-          className={`mt-1 ${
-            darkMode
-              ? "text-gray-400"
-              : "text-gray-500"
-          }`}
-        >
-          Customize how the portal looks.
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Customize how AJ Learning Hub looks.
         </p>
 
-        <div className="mt-6">
-          <div className="flex items-center justify-between">
-            <div className="pr-6">
-              <p
-                className={`font-medium ${
-                  darkMode
-                    ? "text-white"
-                    : "text-gray-900"
-                }`}
-              >
-                Dark Mode
-              </p>
+        <div className="mt-6 flex items-center justify-between">
+          <div>
+            <p className="font-medium">
+              Dark Mode
+            </p>
 
-              <p
-                className={`text-sm ${
-                  darkMode
-                    ? "text-gray-400"
-                    : "text-gray-500"
-                }`}
-              >
-                Enable dark mode for the dashboard.
-              </p>
-            </div>
-
-            <Toggle
-              enabled={darkMode}
-              onChange={toggleDarkMode}
-            />
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Use a darker interface.
+            </p>
           </div>
+
+          <Toggle
+            enabled={darkMode}
+            onChange={setDarkMode}
+          />
         </div>
       </div>
 
-      {/* ============================
-          ACCOUNT SETTINGS
-      ============================ */}
+      {/* ============================ */}
+      {/* ACCOUNT */}
+      {/* ============================ */}
 
       <div
-        className={`rounded-xl p-6 shadow transition-colors ${
+        className={`rounded-xl border p-6 shadow-sm ${
           darkMode
-            ? "bg-gray-800"
-            : "bg-white"
+            ? "border-gray-700 bg-gray-800"
+            : "border-gray-200 bg-white"
         }`}
       >
-        <h2
-          className={`text-xl font-bold ${
-            darkMode
-              ? "text-white"
-              : "text-gray-900"
-          }`}
-        >
+        <h2 className="text-xl font-semibold">
           Account
         </h2>
 
-        <p
-          className={`mt-1 ${
-            darkMode
-              ? "text-gray-400"
-              : "text-gray-500"
-          }`}
-        >
-          Manage your account settings.
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Manage your account security.
         </p>
 
-        <div className="mt-6 space-y-4">
-          {/* Change Password */}
-
+        <div className="mt-6">
           <button
             type="button"
             onClick={() => {
-              setShowPasswordModal(true);
               setPasswordMessage("");
               setPasswordError("");
+              setShowPasswordModal(true);
             }}
-            className={`w-full rounded-lg border p-4 text-left transition ${
-              darkMode
-                ? "border-gray-700 hover:bg-gray-700"
-                : "border-gray-200 hover:bg-gray-50"
-            }`}
+            className="rounded-lg bg-blue-600 px-5 py-2.5 text-white transition hover:bg-blue-700"
           >
-            <p
-              className={`font-medium ${
-                darkMode
-                  ? "text-white"
-                  : "text-gray-900"
-              }`}
-            >
-              Change Password
-            </p>
-
-            <p
-              className={`mt-1 text-sm ${
-                darkMode
-                  ? "text-gray-400"
-                  : "text-gray-500"
-              }`}
-            >
-              Update your account password.
-            </p>
-          </button>
-
-          {/* Privacy */}
-
-          <button
-            type="button"
-            onClick={() => setShowPrivacyModal(true)}
-            className={`w-full rounded-lg border p-4 text-left transition ${
-              darkMode
-                ? "border-gray-700 hover:bg-gray-700"
-                : "border-gray-200 hover:bg-gray-50"
-            }`}
-          >
-            <p
-              className={`font-medium ${
-                darkMode
-                  ? "text-white"
-                  : "text-gray-900"
-              }`}
-            >
-              Privacy
-            </p>
-
-            <p
-              className={`mt-1 text-sm ${
-                darkMode
-                  ? "text-gray-400"
-                  : "text-gray-500"
-              }`}
-            >
-              Manage your privacy preferences.
-            </p>
+            Change Password
           </button>
         </div>
       </div>
 
-      {/* ============================
-          SAVE BUTTON
-      ============================ */}
+      {/* ============================ */}
+      {/* PRIVACY */}
+      {/* ============================ */}
+
+      <div
+        className={`rounded-xl border p-6 shadow-sm ${
+          darkMode
+            ? "border-gray-700 bg-gray-800"
+            : "border-gray-200 bg-white"
+        }`}
+      >
+        <h2 className="text-xl font-semibold">
+          Privacy
+        </h2>
+
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Manage your privacy preferences.
+        </p>
+
+        <div className="mt-6">
+          <button
+            type="button"
+            onClick={() =>
+              setShowPrivacyModal(true)
+            }
+            className="rounded-lg border border-gray-300 px-5 py-2.5 transition hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700"
+          >
+            Privacy Settings
+          </button>
+        </div>
+      </div>
+
+      {/* ============================ */}
+      {/* SAVE BUTTON */}
+      {/* ============================ */}
 
       <div className="flex justify-end">
         <button
           type="button"
           onClick={handleSave}
-          className="rounded-lg bg-blue-600 px-6 py-3 font-medium text-white transition hover:bg-blue-700"
+          disabled={savingSettings}
+          className="rounded-lg bg-blue-600 px-6 py-3 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Save Settings
+          {savingSettings
+            ? "Saving..."
+            : "Save Settings"}
         </button>
       </div>
 
-      {/* ============================
-          PRIVACY MODAL
-      ============================ */}
+      {/* ============================ */}
+      {/* PRIVACY MODAL */}
+      {/* ============================ */}
 
       {showPrivacyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+
           <div
-            className={`w-full max-w-md rounded-xl shadow-xl ${
+            className={`w-full max-w-lg rounded-xl p-6 shadow-xl ${
               darkMode
                 ? "bg-gray-800 text-white"
                 : "bg-white text-gray-900"
             }`}
           >
-            {/* Modal Header */}
 
-            <div
-              className={`flex items-center justify-between border-b p-6 ${
-                darkMode
-                  ? "border-gray-700"
-                  : "border-gray-200"
-              }`}
-            >
-              <div>
-                <h2 className="text-xl font-bold">
-                  Privacy Settings
-                </h2>
-
-                <p
-                  className={`mt-1 text-sm ${
-                    darkMode
-                      ? "text-gray-400"
-                      : "text-gray-500"
-                  }`}
-                >
-                  Manage your privacy preferences.
-                </p>
-              </div>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold">
+                Privacy Settings
+              </h2>
 
               <button
                 type="button"
-                onClick={() => setShowPrivacyModal(false)}
-                className={`text-xl ${
-                  darkMode
-                    ? "text-gray-400 hover:text-white"
-                    : "text-gray-400 hover:text-gray-700"
-                }`}
+                onClick={() =>
+                  setShowPrivacyModal(false)
+                }
+                className="text-2xl text-gray-500 hover:text-gray-700 dark:hover:text-white"
               >
-                ✕
+                ×
               </button>
             </div>
 
-            {/* Privacy Options */}
+            <div className="mt-6 space-y-5">
 
-            <div className="space-y-5 p-6">
               {/* Profile Visibility */}
 
               <div className="flex items-center justify-between">
-                <div className="pr-6">
+                <div>
                   <p className="font-medium">
                     Profile Visibility
                   </p>
 
-                  <p
-                    className={`mt-1 text-sm ${
-                      darkMode
-                        ? "text-gray-400"
-                        : "text-gray-500"
-                    }`}
-                  >
-                    Allow other users to view your
-                    profile.
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Allow other users to view your profile.
                   </p>
                 </div>
 
@@ -628,18 +594,12 @@ function Settings() {
               {/* Activity Status */}
 
               <div className="flex items-center justify-between">
-                <div className="pr-6">
+                <div>
                   <p className="font-medium">
                     Activity Status
                   </p>
 
-                  <p
-                    className={`mt-1 text-sm ${
-                      darkMode
-                        ? "text-gray-400"
-                        : "text-gray-500"
-                    }`}
-                  >
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
                     Show when you are active.
                   </p>
                 </div>
@@ -649,212 +609,136 @@ function Settings() {
                   onChange={setActivityStatus}
                 />
               </div>
+
             </div>
 
-            {/* Modal Buttons */}
-
-            <div className="flex justify-end gap-3 p-6 pt-0">
+            <div className="mt-6 flex justify-end">
               <button
                 type="button"
-                onClick={() => setShowPrivacyModal(false)}
-                className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white transition hover:bg-blue-700"
+                onClick={() =>
+                  setShowPrivacyModal(false)
+                }
+                className="rounded-lg bg-blue-600 px-5 py-2.5 text-white hover:bg-blue-700"
               >
                 Done
               </button>
             </div>
+
           </div>
+
         </div>
       )}
 
-      {/* ============================
-          CHANGE PASSWORD MODAL
-      ============================ */}
+      {/* ============================ */}
+      {/* CHANGE PASSWORD MODAL */}
+      {/* ============================ */}
 
       {showPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+
           <div
-            className={`w-full max-w-md rounded-xl shadow-xl ${
+            className={`w-full max-w-md rounded-xl p-6 shadow-xl ${
               darkMode
                 ? "bg-gray-800 text-white"
                 : "bg-white text-gray-900"
             }`}
           >
-            {/* Modal Header */}
 
-            <div
-              className={`flex items-center justify-between border-b p-6 ${
-                darkMode
-                  ? "border-gray-700"
-                  : "border-gray-200"
-              }`}
-            >
-              <div>
-                <h2 className="text-xl font-bold">
-                  Change Password
-                </h2>
-
-                <p
-                  className={`mt-1 text-sm ${
-                    darkMode
-                      ? "text-gray-400"
-                      : "text-gray-500"
-                  }`}
-                >
-                  Update your account password.
-                </p>
-              </div>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-semibold">
+                Change Password
+              </h2>
 
               <button
                 type="button"
                 onClick={closePasswordModal}
-                disabled={changingPassword}
-                className={`text-xl disabled:opacity-50 ${
-                  darkMode
-                    ? "text-gray-400 hover:text-white"
-                    : "text-gray-400 hover:text-gray-700"
-                }`}
+                className="text-2xl text-gray-500 hover:text-gray-700 dark:hover:text-white"
               >
-                ✕
+                ×
               </button>
             </div>
 
-            {/* Modal Form */}
-
             <form
               onSubmit={handleChangePassword}
-              className="space-y-5 p-6"
+              className="mt-6 space-y-4"
             >
+
               {/* Current Password */}
 
               <div>
-                <label
-                  htmlFor="currentPassword"
-                  className={`mb-2 block text-sm font-medium ${
-                    darkMode
-                      ? "text-gray-200"
-                      : "text-gray-700"
-                  }`}
-                >
+                <label className="mb-1 block text-sm font-medium">
                   Current Password
                 </label>
 
                 <input
-                  id="currentPassword"
                   type="password"
                   value={currentPassword}
                   onChange={(e) =>
                     setCurrentPassword(e.target.value)
                   }
-                  placeholder="Enter current password"
-                  className={`w-full rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 ${
-                    darkMode
-                      ? "border border-gray-600 bg-gray-700 text-white placeholder-gray-400"
-                      : "border border-gray-300 bg-white text-gray-900"
-                  }`}
-                  required
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2.5 outline-none focus:border-blue-500 dark:border-gray-600 dark:bg-gray-700"
                 />
               </div>
 
               {/* New Password */}
 
               <div>
-                <label
-                  htmlFor="newPassword"
-                  className={`mb-2 block text-sm font-medium ${
-                    darkMode
-                      ? "text-gray-200"
-                      : "text-gray-700"
-                  }`}
-                >
+                <label className="mb-1 block text-sm font-medium">
                   New Password
                 </label>
 
                 <input
-                  id="newPassword"
                   type="password"
                   value={newPassword}
                   onChange={(e) =>
                     setNewPassword(e.target.value)
                   }
-                  placeholder="Enter new password"
-                  className={`w-full rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 ${
-                    darkMode
-                      ? "border border-gray-600 bg-gray-700 text-white placeholder-gray-400"
-                      : "border border-gray-300 bg-white text-gray-900"
-                  }`}
-                  required
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2.5 outline-none focus:border-blue-500 dark:border-gray-600 dark:bg-gray-700"
                 />
-
-                <p
-                  className={`mt-1 text-xs ${
-                    darkMode
-                      ? "text-gray-400"
-                      : "text-gray-500"
-                  }`}
-                >
-                  Password must be at least 6 characters.
-                </p>
               </div>
 
               {/* Confirm Password */}
 
               <div>
-                <label
-                  htmlFor="confirmPassword"
-                  className={`mb-2 block text-sm font-medium ${
-                    darkMode
-                      ? "text-gray-200"
-                      : "text-gray-700"
-                  }`}
-                >
+                <label className="mb-1 block text-sm font-medium">
                   Confirm New Password
                 </label>
 
                 <input
-                  id="confirmPassword"
                   type="password"
                   value={confirmPassword}
                   onChange={(e) =>
                     setConfirmPassword(e.target.value)
                   }
-                  placeholder="Confirm new password"
-                  className={`w-full rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 ${
-                    darkMode
-                      ? "border border-gray-600 bg-gray-700 text-white placeholder-gray-400"
-                      : "border border-gray-300 bg-white text-gray-900"
-                  }`}
-                  required
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2.5 outline-none focus:border-blue-500 dark:border-gray-600 dark:bg-gray-700"
                 />
               </div>
 
-              {/* Error Message */}
+              {/* ERROR */}
 
               {passwordError && (
-                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+                <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
                   {passwordError}
                 </div>
               )}
 
-              {/* Success Message */}
+              {/* SUCCESS */}
 
               {passwordMessage && (
-                <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-600">
+                <div className="rounded-lg bg-green-100 p-3 text-sm text-green-700 dark:bg-green-900/30 dark:text-green-300">
                   {passwordMessage}
                 </div>
               )}
 
-              {/* Modal Buttons */}
+              {/* BUTTONS */}
 
               <div className="flex justify-end gap-3 pt-2">
+
                 <button
                   type="button"
                   onClick={closePasswordModal}
                   disabled={changingPassword}
-                  className={`rounded-lg border px-5 py-2.5 font-medium transition disabled:opacity-50 ${
-                    darkMode
-                      ? "border-gray-600 text-gray-200 hover:bg-gray-700"
-                      : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                  }`}
+                  className="rounded-lg border border-gray-300 px-5 py-2.5 dark:border-gray-600"
                 >
                   Cancel
                 </button>
@@ -862,15 +746,19 @@ function Settings() {
                 <button
                   type="submit"
                   disabled={changingPassword}
-                  className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-lg bg-blue-600 px-5 py-2.5 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {changingPassword
                     ? "Changing..."
                     : "Change Password"}
                 </button>
+
               </div>
+
             </form>
+
           </div>
+
         </div>
       )}
     </div>
