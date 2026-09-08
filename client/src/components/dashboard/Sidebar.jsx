@@ -1,13 +1,8 @@
 import { Link } from "react-router-dom";
-import { useAuth } from "../../contexts/useAuth";
 
 function Sidebar() {
-  const { user } = useAuth();
-
-  const isInstructor = user?.role === "instructor";
-
   return (
-    <aside className="w-64 min-h-screen bg-slate-900 text-white p-6">
+    <aside className="w-64 min-h-screen p-6 bg-slate-900 dark:bg-slate-950 text-white transition-colors duration-300">
 
       <h2 className="text-2xl font-bold mb-8">
         AJ Learning Hub
@@ -15,76 +10,91 @@ function Sidebar() {
 
       <nav className="flex flex-col gap-4">
 
-        <Link to="/dashboard">
+        <Link
+          to="/dashboard"
+          className="hover:text-blue-400 transition-colors"
+        >
           🏠 Dashboard
         </Link>
 
-        <Link to="/profile">
+        <Link
+          to="/profile"
+          className="hover:text-blue-400 transition-colors"
+        >
           👤 Profile
         </Link>
 
-        <Link to="/courses">
+        <Link
+          to="/courses"
+          className="hover:text-blue-400 transition-colors"
+        >
           📚 My Courses
         </Link>
 
-        <Link to="/materials">
+        <Link
+          to="/materials"
+          className="hover:text-blue-400 transition-colors"
+        >
           📂 Learning Materials
         </Link>
 
-        {/* Student Assignments */}
-
-        <Link to="/assignments">
+        <Link
+          to="/assignments"
+          className="hover:text-blue-400 transition-colors"
+        >
           📝 Assignments
         </Link>
 
-        <Link to="/announcements">
+        <Link
+          to="/announcements"
+          className="hover:text-blue-400 transition-colors"
+        >
           📢 Announcements
         </Link>
 
-        <Link to="/grades">
+        <Link
+          to="/grades"
+          className="hover:text-blue-400 transition-colors"
+        >
           📊 Grades
         </Link>
 
-        <Link to="/calendar">
+        <Link
+          to="/calendar"
+          className="hover:text-blue-400 transition-colors"
+        >
           📅 Calendar
         </Link>
 
-        <Link to="/messages">
+        <Link
+          to="/messages"
+          className="hover:text-blue-400 transition-colors"
+        >
           💬 Messages
         </Link>
 
-        <Link to="/notifications">
+        <Link
+          to="/notifications"
+          className="hover:text-blue-400 transition-colors"
+        >
           🔔 Notifications
         </Link>
 
-        <Link to="/settings">
+        <Link
+          to="/settings"
+          className="hover:text-blue-400 transition-colors"
+        >
           ⚙️ Settings
         </Link>
 
-        {/* =================================================
-            INSTRUCTOR ONLY
-        ================================================= */}
-
-        {isInstructor && (
-          <>
-            <div className="border-t border-slate-700 my-2" />
-
-            <p className="text-xs font-semibold text-slate-400 uppercase">
-              Instructor
-            </p>
-
-            <Link to="/instructor-submissions">
-              📥 Student Submissions
-            </Link>
-
-            <Link to="/instructor-assignments">
-              📝 Manage Assignments
-            </Link>
-          </>
-        )}
+        <Link
+          to="/instructor"
+          className="hover:text-blue-400 transition-colors"
+        >
+          🎓 Instructor Panel
+        </Link>
 
       </nav>
-
     </aside>
   );
 }

@@ -11,14 +11,14 @@ function Header() {
   };
 
   return (
-    <header className="bg-white border-b px-6 py-4 flex items-center justify-between">
+    <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-4 flex items-center justify-between transition-colors duration-300">
 
       <div>
-        <h2 className="text-xl font-semibold text-gray-800">
+        <h2 className="text-xl font-semibold text-gray-800 dark:text-white">
           Dashboard
         </h2>
 
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Welcome back, {user?.name || "Student"}
         </p>
       </div>
@@ -26,11 +26,11 @@ function Header() {
       <div className="flex items-center gap-4">
 
         <div className="hidden md:block text-right">
-          <p className="font-semibold text-gray-800">
+          <p className="font-semibold text-gray-800 dark:text-white">
             {user?.name || "Student"}
           </p>
 
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             {user?.role || "student"}
           </p>
         </div>
