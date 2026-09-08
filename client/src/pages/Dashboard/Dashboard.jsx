@@ -46,26 +46,30 @@ function Dashboard() {
           ? "http://localhost:5000/api/submissions/all"
           : "http://localhost:5000/api/submissions/my-submissions";
 
-        const [
-          coursesResponse,
-          assignmentsResponse,
-          submissionsResponse,
-        ] = await Promise.all([
-          fetch("http://localhost:5000/api/courses", {
-            headers,
-            signal: controller.signal,
-          }),
+        const coursesUrl = isInstructor
+  ? "http://localhost:5000/api/courses"
+  : "http://localhost:5000/api/courses/enrollments/my";
 
-          fetch("http://localhost:5000/api/assignments", {
-            headers,
-            signal: controller.signal,
-          }),
+const [
+  coursesResponse,
+  assignmentsResponse,
+  submissionsResponse,
+] = await Promise.all([
+  fetch(coursesUrl, {
+    headers,
+    signal: controller.signal,
+  }),
 
-          fetch(submissionsUrl, {
-            headers,
-            signal: controller.signal,
-          }),
-        ]);
+  fetch("http://localhost:5000/api/assignments", {
+    headers,
+    signal: controller.signal,
+  }),
+
+  fetch(submissionsUrl, {
+    headers,
+    signal: controller.signal,
+  }),
+]);
 
         // -------------------------------------------------
         // COURSES

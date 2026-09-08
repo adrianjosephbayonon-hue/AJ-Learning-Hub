@@ -6,6 +6,8 @@ import {
   UserPlus,
 } from "lucide-react";
 
+import { useAuth } from "../../contexts/useAuth";
+
 import {
   getCourses,
   getMyEnrollments,
@@ -13,27 +15,40 @@ import {
 } from "../../api/courses";
 
 function Courses() {
+  const { user } = useAuth();
+
   const [courses, setCourses] = useState([]);
   const [enrolledCourses, setEnrolledCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [enrollingId, setEnrollingId] = useState(null);
   const [error, setError] = useState("");
 
+  const isStudent = user?.role === "student";
+
   useEffect(() => {
     let cancelled = false;
 
     async function fetchCourses() {
       try {
-        const [coursesResponse, enrollmentsResponse] =
-          await Promise.all([
-            getCourses(),
-            getMyEnrollments(),
-          ]);
+        setLoading(true);
+        setError("");
+
+        const coursesResponse = await getCourses();
 
         if (cancelled) return;
 
         setCourses(coursesResponse.data);
-        setEnrolledCourses(enrollmentsResponse.data);
+
+        // Only students need enrollment information
+        if (isStudent) {
+          const enrollmentsResponse = await getMyEnrollments();
+
+          if (cancelled) return;
+
+          setEnrolledCourses(enrollmentsResponse.data);
+        } else {
+          setEnrolledCourses([]);
+        }
       } catch (error) {
         if (cancelled) return;
 
@@ -55,7 +70,7 @@ function Courses() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isStudent]);
 
   const isEnrolled = (courseId) => {
     return enrolledCourses.some(
@@ -107,7 +122,9 @@ function Courses() {
         </h1>
 
         <p className="mt-1 text-sm text-gray-500">
-          Browse available courses and enroll in your classes.
+          {isStudent
+            ? "Browse available courses and enroll in your classes."
+            : "View the courses available in AJ Learning Hub."}
         </p>
       </div>
 
@@ -162,7 +179,7 @@ function Courses() {
 
                     {/* ENROLLED BADGE */}
 
-                    {enrolled && (
+                    {isStudent && enrolled && (
                       <span className="flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
                         <CheckCircle className="h-4 w-4" />
                         Enrolled
@@ -195,49 +212,45 @@ function Courses() {
                       "No course description available."}
                   </p>
 
-                  {/* BUTTON */}
+                  {/* STUDENT ENROLLMENT BUTTON */}
 
-                  <div className="mt-6">
+                  {isStudent && (
+                    <div className="mt-6">
 
-                    {enrolled ? (
+                      {enrolled ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-green-100 px-4 py-2.5 text-sm font-semibold text-green-700"
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                          Enrolled
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleEnroll(course.id)
+                          }
+                          disabled={enrolling}
+                          className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {enrolling ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Enrolling...
+                            </>
+                          ) : (
+                            <>
+                              <UserPlus className="h-4 w-4" />
+                              Enroll
+                            </>
+                          )}
+                        </button>
+                      )}
 
-                      <button
-                        type="button"
-                        disabled
-                        className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-green-100 px-4 py-2.5 text-sm font-semibold text-green-700"
-                      >
-                        <CheckCircle className="h-4 w-4" />
-                        Enrolled
-                      </button>
-
-                    ) : (
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleEnroll(course.id)
-                        }
-                        disabled={enrolling}
-                        className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-
-                        {enrolling ? (
-                          <>
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Enrolling...
-                          </>
-                        ) : (
-                          <>
-                            <UserPlus className="h-4 w-4" />
-                            Enroll
-                          </>
-                        )}
-
-                      </button>
-
-                    )}
-
-                  </div>
+                    </div>
+                  )}
 
                 </div>
 

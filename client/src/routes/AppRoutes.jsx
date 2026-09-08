@@ -29,10 +29,20 @@ import DashboardLayout from "../layouts/DashboardLayout";
 function AppRoutes() {
   return (
     <Routes>
+      {/* ========================= */}
+      {/* PUBLIC ROUTES */}
+      {/* ========================= */}
+
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
 
+      {/* ========================= */}
+      {/* PROTECTED ROUTES */}
+      {/* ========================= */}
+
       <Route element={<ProtectedRoute />}>
+
+        {/* Dashboard */}
         <Route
           path="/"
           element={
@@ -51,115 +61,17 @@ function AppRoutes() {
           }
         />
 
-        <Route
-          path="/courses"
-          element={
-            <DashboardLayout>
-              <Courses />
-            </DashboardLayout>
-          }
-        />
-
-        <Route
-          path="/courses/:id"
-          element={
-            <DashboardLayout>
-              <CourseDetails />
-            </DashboardLayout>
-          }
-        />
-
-        <Route
-          path="/materials"
-          element={
-            <DashboardLayout>
-              <Materials />
-            </DashboardLayout>
-          }
-        />
-
-        <Route
-          path="/assignments"
-          element={
-            <DashboardLayout>
-              <Assignments />
-            </DashboardLayout>
-          }
-        />
-
-        <Route
-          path="/submission-history"
-          element={
-            <DashboardLayout>
-              <SubmissionHistory />
-            </DashboardLayout>
-          }
-        />
-
-        <Route
-          path="/grades"
-          element={
-            <DashboardLayout>
-              <Grades />
-            </DashboardLayout>
-          }
-        />
-
-        <Route
-          path="/calendar"
-          element={
-            <DashboardLayout>
-              <Calendar />
-            </DashboardLayout>
-          }
-        />
-
-        <Route
-          path="/messages"
-          element={
-            <DashboardLayout>
-              <Messages />
-            </DashboardLayout>
-          }
-        />
-
-        <Route
-          path="/profile"
-          element={
-            <DashboardLayout>
-              <Profile />
-            </DashboardLayout>
-          }
-        />
-
-        <Route
-          path="/settings"
-          element={
-            <DashboardLayout>
-              <Settings />
-            </DashboardLayout>
-          }
-        />
-
-        <Route
-          path="/announcements"
-          element={
-            <DashboardLayout>
-              <Announcements />
-            </DashboardLayout>
-          }
-        />
-
-        <Route
-          path="/notifications"
-          element={
-            <DashboardLayout>
-              <Notifications />
-            </DashboardLayout>
-          }
-        />
-
+        {/* Instructor Dashboard */}
         <Route element={<InstructorRoute />}>
+          <Route
+            path="/instructor"
+            element={
+              <DashboardLayout>
+                <Dashboard />
+              </DashboardLayout>
+            }
+          />
+
           <Route
             path="/instructor-submissions"
             element={
@@ -178,6 +90,126 @@ function AppRoutes() {
             }
           />
         </Route>
+
+        {/* Courses */}
+        <Route
+          path="/courses"
+          element={
+            <DashboardLayout>
+              <Courses />
+            </DashboardLayout>
+          }
+        />
+
+        <Route
+          path="/courses/:id"
+          element={
+            <DashboardLayout>
+              <CourseDetails />
+            </DashboardLayout>
+          }
+        />
+
+        {/* Materials */}
+        <Route
+          path="/materials"
+          element={
+            <DashboardLayout>
+              <Materials />
+            </DashboardLayout>
+          }
+        />
+
+        {/* Assignments */}
+        <Route
+          path="/assignments"
+          element={
+            <DashboardLayout>
+              <Assignments />
+            </DashboardLayout>
+          }
+        />
+
+        {/* Submission History */}
+        <Route
+          path="/submission-history"
+          element={
+            <DashboardLayout>
+              <SubmissionHistory />
+            </DashboardLayout>
+          }
+        />
+
+        {/* Grades */}
+        <Route
+          path="/grades"
+          element={
+            <DashboardLayout>
+              <Grades />
+            </DashboardLayout>
+          }
+        />
+
+        {/* Calendar */}
+        <Route
+          path="/calendar"
+          element={
+            <DashboardLayout>
+              <Calendar />
+            </DashboardLayout>
+          }
+        />
+
+        {/* Messages */}
+        <Route
+          path="/messages"
+          element={
+            <DashboardLayout>
+              <Messages />
+            </DashboardLayout>
+          }
+        />
+
+        {/* Profile */}
+        <Route
+          path="/profile"
+          element={
+            <DashboardLayout>
+              <Profile />
+            </DashboardLayout>
+          }
+        />
+
+        {/* Settings */}
+        <Route
+          path="/settings"
+          element={
+            <DashboardLayout>
+              <Settings />
+            </DashboardLayout>
+          }
+        />
+
+        {/* Announcements */}
+        <Route
+          path="/announcements"
+          element={
+            <DashboardLayout>
+              <Announcements />
+            </DashboardLayout>
+          }
+        />
+
+        {/* Notifications */}
+        <Route
+          path="/notifications"
+          element={
+            <DashboardLayout>
+              <Notifications />
+            </DashboardLayout>
+          }
+        />
+
       </Route>
     </Routes>
   );
