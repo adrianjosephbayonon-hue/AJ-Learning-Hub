@@ -11,6 +11,7 @@ const courseRoutes = require("./routes/courseRoutes");
 const assignmentRoutes = require("./routes/assignmentRoutes");
 const submissionRoutes = require("./routes/submissionRoutes");
 const materialRoutes = require("./routes/materialRoutes");
+const settingsRoutes = require("./routes/settingsRoutes");
 
 const app = express();
 
@@ -93,8 +94,17 @@ app.use("/api/submissions", submissionRoutes);
 // =====================================================
 // MATERIAL ROUTES
 // =====================================================
-
+ 
 app.use("/api/materials", materialRoutes);
+
+
+
+//setting routes
+
+app.use("/api/settings", settingsRoutes);
+
+
+
 
 // =====================================================
 // ERROR HANDLER

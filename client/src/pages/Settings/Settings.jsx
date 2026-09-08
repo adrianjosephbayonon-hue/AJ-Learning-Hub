@@ -52,10 +52,7 @@ function getSavedSettings() {
       activityStatus: settings.activityStatus ?? true,
     };
   } catch (error) {
-    console.error(
-      "Unable to load saved settings:",
-      error
-    );
+    console.error("Unable to load saved settings:", error);
 
     return defaultSettings;
   }
@@ -72,52 +69,45 @@ function Settings() {
   // SETTINGS STATES
   // ============================
 
-  const savedSettings = getSavedSettings();
-
   const [notifications, setNotifications] = useState(
-    savedSettings.notifications
+    () => getSavedSettings().notifications
   );
 
-  const [emailNotifications, setEmailNotifications] =
-    useState(savedSettings.emailNotifications);
+  const [emailNotifications, setEmailNotifications] = useState(
+    () => getSavedSettings().emailNotifications
+  );
 
   // ============================
   // CHANGE PASSWORD STATES
   // ============================
 
-  const [showPasswordModal, setShowPasswordModal] =
-    useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
-  const [currentPassword, setCurrentPassword] =
-    useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
 
-  const [newPassword, setNewPassword] =
-    useState("");
+  const [newPassword, setNewPassword] = useState("");
 
-  const [confirmPassword, setConfirmPassword] =
-    useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
-  const [passwordMessage, setPasswordMessage] =
-    useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
 
-  const [passwordError, setPasswordError] =
-    useState("");
+  const [passwordError, setPasswordError] = useState("");
 
-  const [changingPassword, setChangingPassword] =
-    useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   // ============================
   // PRIVACY STATES
   // ============================
 
-  const [showPrivacyModal, setShowPrivacyModal] =
-    useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
-  const [profileVisibility, setProfileVisibility] =
-    useState(savedSettings.profileVisibility);
+  const [profileVisibility, setProfileVisibility] = useState(
+    () => getSavedSettings().profileVisibility
+  );
 
-  const [activityStatus, setActivityStatus] =
-    useState(savedSettings.activityStatus);
+  const [activityStatus, setActivityStatus] = useState(
+    () => getSavedSettings().activityStatus
+  );
 
   // ============================
   // SAVE SETTINGS
@@ -149,14 +139,8 @@ function Settings() {
     setPasswordError("");
 
     // Check if all fields are filled
-    if (
-      !currentPassword ||
-      !newPassword ||
-      !confirmPassword
-    ) {
-      setPasswordError(
-        "Please fill in all password fields."
-      );
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordError("Please fill in all password fields.");
       return;
     }
 
@@ -170,9 +154,7 @@ function Settings() {
 
     // Check if passwords match
     if (newPassword !== confirmPassword) {
-      setPasswordError(
-        "New passwords do not match."
-      );
+      setPasswordError("New passwords do not match.");
       return;
     }
 
@@ -211,16 +193,14 @@ function Settings() {
       // Backend returned an error
       if (!response.ok) {
         setPasswordError(
-          data.message ||
-            "Failed to change password."
+          data.message || "Failed to change password."
         );
         return;
       }
 
       // Password changed successfully
       setPasswordMessage(
-        data.message ||
-          "Password changed successfully!"
+        data.message || "Password changed successfully!"
       );
 
       // Clear password fields
@@ -228,14 +208,9 @@ function Settings() {
       setNewPassword("");
       setConfirmPassword("");
     } catch (error) {
-      console.error(
-        "Change password error:",
-        error
-      );
+      console.error("Change password error:", error);
 
-      setPasswordError(
-        "Unable to connect to the server."
-      );
+      setPasswordError("Unable to connect to the server.");
     } finally {
       setChangingPassword(false);
     }
@@ -526,9 +501,7 @@ function Settings() {
 
           <button
             type="button"
-            onClick={() =>
-              setShowPrivacyModal(true)
-            }
+            onClick={() => setShowPrivacyModal(true)}
             className={`w-full rounded-lg border p-4 text-left transition ${
               darkMode
                 ? "border-gray-700 hover:bg-gray-700"
@@ -612,9 +585,7 @@ function Settings() {
 
               <button
                 type="button"
-                onClick={() =>
-                  setShowPrivacyModal(false)
-                }
+                onClick={() => setShowPrivacyModal(false)}
                 className={`text-xl ${
                   darkMode
                     ? "text-gray-400 hover:text-white"
@@ -685,9 +656,7 @@ function Settings() {
             <div className="flex justify-end gap-3 p-6 pt-0">
               <button
                 type="button"
-                onClick={() =>
-                  setShowPrivacyModal(false)
-                }
+                onClick={() => setShowPrivacyModal(false)}
                 className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white transition hover:bg-blue-700"
               >
                 Done
@@ -774,9 +743,7 @@ function Settings() {
                   type="password"
                   value={currentPassword}
                   onChange={(e) =>
-                    setCurrentPassword(
-                      e.target.value
-                    )
+                    setCurrentPassword(e.target.value)
                   }
                   placeholder="Enter current password"
                   className={`w-full rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 ${
@@ -807,9 +774,7 @@ function Settings() {
                   type="password"
                   value={newPassword}
                   onChange={(e) =>
-                    setNewPassword(
-                      e.target.value
-                    )
+                    setNewPassword(e.target.value)
                   }
                   placeholder="Enter new password"
                   className={`w-full rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 ${
@@ -827,8 +792,7 @@ function Settings() {
                       : "text-gray-500"
                   }`}
                 >
-                  Password must be at least 6
-                  characters.
+                  Password must be at least 6 characters.
                 </p>
               </div>
 
@@ -851,9 +815,7 @@ function Settings() {
                   type="password"
                   value={confirmPassword}
                   onChange={(e) =>
-                    setConfirmPassword(
-                      e.target.value
-                    )
+                    setConfirmPassword(e.target.value)
                   }
                   placeholder="Confirm new password"
                   className={`w-full rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 ${
