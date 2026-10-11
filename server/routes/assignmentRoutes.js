@@ -1,3 +1,4 @@
+
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
@@ -12,179 +13,137 @@ const {
 } = require("../controllers/assignmentController");
 
 const authenticateToken = require("../middleware/authMiddleware");
+const instructorMiddleware = require("../middleware/instructorMiddleware");
 
 const router = express.Router();
 
 // =====================================================
-// MULTER STORAGE
+// ASSIGNMENT FILE UPLOAD CONFIGURATION
 // =====================================================
+
+// Store uploads in the existing uploads directory.
+// Keep this directory private; do not serve it publicly.
+const uploadDirectory = path.join(__dirname, "../uploads");
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(
-      null,
-      path.join(__dirname, "../uploads")
-    );
+    cb(null, uploadDirectory);
   },
 
   filename: (req, file, cb) => {
-    const uniqueName =
-      `${Date.now()}-${file.originalname}`;
+    // Never use the original filename as the disk filename.
+    // A random name avoids collisions and path manipulation.
+    const extension = path.extname(file.originalname).toLowerCase();
+    const safeExtension = /^\.[a-z0-9]{1,10}$/.test(extension)
+      ? extension
+      : "";
 
+    const uniqueName = `${require("crypto").randomUUID()}${safeExtension}`;
     cb(null, uniqueName);
   },
 });
 
-// =====================================================
-// FILE FILTER
-// =====================================================
+// Extension filtering is a basic safeguard, not proof that a file
+// is safe. Consider MIME/content validation and malware scanning too.
+const allowedExtensions = new Set([
+  ".pdf", ".doc", ".docx", ".ppt", ".pptx",
+  ".xls", ".xlsx", ".txt", ".zip",
+  ".jpg", ".jpeg", ".png",
+]);
 
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = [
-    ".pdf",
-    ".doc",
-    ".docx",
-    ".ppt",
-    ".pptx",
-    ".xls",
-    ".xlsx",
-    ".txt",
-    ".zip",
-    ".jpg",
-    ".jpeg",
-    ".png",
-  ];
+  const extension = path.extname(file.originalname).toLowerCase();
 
-  const extension = path
-    .extname(file.originalname)
-    .toLowerCase();
-
-  if (allowedTypes.includes(extension)) {
-    cb(null, true);
-  } else {
-    cb(
-      new Error(
-        "Unsupported file type. Please upload a valid school assignment file."
-      )
+  if (!allowedExtensions.has(extension)) {
+    return cb(
+      new multer.MulterError("LIMIT_UNEXPECTED_FILE", file.fieldname)
     );
   }
-};
 
-// =====================================================
-// MULTER CONFIGURATION
-// =====================================================
+  return cb(null, true);
+};
 
 const upload = multer({
   storage,
   fileFilter,
-
   limits: {
-    fileSize: 20 * 1024 * 1024,
+    fileSize: 20 * 1024 * 1024, // Maximum 20 MB per file.
+    files: 1,
   },
 });
 
 // =====================================================
-// INSTRUCTOR-ONLY MIDDLEWARE
+// STUDENT-ONLY MIDDLEWARE
 // =====================================================
 
-const instructorOnly = (req, res, next) => {
-  if (req.user?.role !== "instructor") {
-    return res.status(403).json({
-      message:
-        "Access denied. Instructor access required.",
+// Students can submit assignments, but instructors cannot use
+// the student submission endpoint with an instructor account.
+const studentOnly = (req, res, next) => {
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({
+      message: "Authentication required.",
     });
   }
 
-  next();
+  if (req.user.role !== "student") {
+    return res.status(403).json({
+      message: "Student access required.",
+    });
+  }
+
+  return next();
 };
 
 // =====================================================
-// GET ALL ASSIGNMENTS
+// VIEW ASSIGNMENTS
 // =====================================================
 
-// Students and instructors can view assignments.
-
-router.get(
-  "/",
-  authenticateToken,
-  getAssignments
-);
+// Both students and instructors may view assignments.
+// The controller must restrict student results to enrolled courses.
+router.get("/", authenticateToken, getAssignments);
+router.get("/:id", authenticateToken, getAssignmentById);
 
 // =====================================================
-// GET ONE ASSIGNMENT
+// INSTRUCTOR-ONLY ASSIGNMENT MANAGEMENT
 // =====================================================
 
-router.get(
-  "/:id",
-  authenticateToken,
-  getAssignmentById
-);
-
-// =====================================================
-// CREATE ASSIGNMENT
-// =====================================================
-
-// Instructor ONLY.
-//
-// FormData fields:
-// title
-// description
-// due_date
-// course_id
-// file
-
+// Create an assignment. The controller validates its fields
+// and verifies that the selected course exists.
 router.post(
   "/",
   authenticateToken,
-  instructorOnly,
+  instructorMiddleware,
   upload.single("file"),
   createAssignment
 );
 
-// =====================================================
-// UPDATE ASSIGNMENT
-// =====================================================
-
-// Instructor ONLY.
-//
-// Can optionally replace the assignment file.
-
+// Update an assignment and optionally replace its attachment.
 router.put(
   "/:id",
   authenticateToken,
-  instructorOnly,
+  instructorMiddleware,
   upload.single("file"),
   updateAssignment
 );
 
-// =====================================================
-// DELETE ASSIGNMENT
-// =====================================================
-
+// Delete an assignment.
 router.delete(
   "/:id",
   authenticateToken,
-  instructorOnly,
+  instructorMiddleware,
   deleteAssignment
 );
 
 // =====================================================
-// DOWNLOAD ASSIGNMENT FILE
+// DOWNLOAD ASSIGNMENT ATTACHMENT
 // =====================================================
 
-// Students can download files from assignments
-// belonging to their enrolled courses.
-//
-// Instructors can download any assignment file.
-
+// The controller must check enrollment before allowing a student
+// to download the file. Instructors may download as authorized.
 router.get(
   "/:id/download",
   authenticateToken,
   downloadAssignment
 );
-
-// =====================================================
-// EXPORT
-// =====================================================
 
 module.exports = router;

@@ -1,71 +1,44 @@
+
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const pool = require("../config/db");
 
+const PASSWORD_MIN_LENGTH = 12;
+const PASSWORD_MAX_BYTES = 72;
+
+// ============================
+// JWT HELPER
+// ============================
+
+const createToken = (user) => {
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET is not configured.");
+  }
+
+  return jwt.sign(
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      tokenVersion: user.token_version,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+};
 
 // ============================
 // REGISTER
 // ============================
 
+// Public registration is disabled.
+// Accounts should be created through the protected instructor endpoint.
 const register = async (req, res) => {
-  try {
-    const { name, email, password } = req.body;
-
-    if (!name || !email || !password) {
-      return res.status(400).json({
-        message: "Name, email, and password are required.",
-      });
-    }
-
-    const existingUser = await pool.query(
-      "SELECT id FROM users WHERE email = $1",
-      [email]
-    );
-
-    if (existingUser.rows.length > 0) {
-      return res.status(409).json({
-        message: "Email is already registered.",
-      });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const result = await pool.query(
-      `INSERT INTO users (name, email, password)
-       VALUES ($1, $2, $3)
-       RETURNING id, name, email, role, created_at`,
-      [name, email, hashedPassword]
-    );
-
-    const user = result.rows[0];
-
-    const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-      },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "7d",
-      }
-    );
-
-    res.status(201).json({
-      message: "Registration successful.",
-      user,
-      token,
-    });
-
-  } catch (error) {
-    console.error("Registration error:", error);
-
-    res.status(500).json({
-      message: "Server error during registration.",
-    });
-  }
+  return res.status(403).json({
+    message:
+      "Public registration is disabled. Please contact your instructor to get an account.",
+  });
 };
-
 
 // ============================
 // LOGIN
@@ -73,19 +46,27 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = req.body || {};
 
-    // Check required fields
-    if (!email || !password) {
+    if (
+      typeof email !== "string" ||
+      typeof password !== "string" ||
+      !email.trim() ||
+      !password
+    ) {
       return res.status(400).json({
         message: "Email and password are required.",
       });
     }
 
-    // Find user
+    const cleanEmail = email.trim().toLowerCase();
+
     const result = await pool.query(
-      "SELECT * FROM users WHERE email = $1",
-      [email]
+      `SELECT id, name, email, password, role, token_version
+       FROM users
+       WHERE LOWER(email) = $1
+       LIMIT 1`,
+      [cleanEmail]
     );
 
     if (result.rows.length === 0) {
@@ -96,7 +77,6 @@ const login = async (req, res) => {
 
     const user = result.rows[0];
 
-    // Check password
     const passwordMatch = await bcrypt.compare(
       password,
       user.password
@@ -108,21 +88,9 @@ const login = async (req, res) => {
       });
     }
 
-    // Create JWT
-    const token = jwt.sign(
-      {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-      },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "7d",
-      }
-    );
+    const token = createToken(user);
 
-    // Don't send password back to frontend
-    res.json({
+    return res.json({
       message: "Login successful.",
       user: {
         id: user.id,
@@ -132,16 +100,14 @@ const login = async (req, res) => {
       },
       token,
     });
-
   } catch (error) {
     console.error("Login error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Server error during login.",
     });
   }
 };
-
 
 // ============================
 // UPDATE PROFILE
@@ -149,21 +115,23 @@ const login = async (req, res) => {
 
 const updateProfile = async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name } = req.body || {};
 
-    if (!name || !name.trim()) {
+    if (
+      typeof name !== "string" ||
+      !name.trim() ||
+      name.trim().length > 100
+    ) {
       return res.status(400).json({
-        message: "Name is required.",
+        message: "Name is required and must not exceed 100 characters.",
       });
     }
 
     const result = await pool.query(
-      `
-      UPDATE users
-      SET name = $1
-      WHERE id = $2
-      RETURNING id, name, email, role, created_at
-      `,
+      `UPDATE users
+       SET name = $1
+       WHERE id = $2
+       RETURNING id, name, email, role, created_at`,
       [name.trim(), req.user.id]
     );
 
@@ -173,27 +141,18 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       message: "Profile updated successfully.",
       user: result.rows[0],
     });
-
   } catch (error) {
     console.error("Update profile error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Server error while updating profile.",
     });
   }
 };
-
-
-
-
-
-
-
-
 
 // ============================
 // CHANGE PASSWORD
@@ -201,23 +160,39 @@ const updateProfile = async (req, res) => {
 
 const changePassword = async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword } = req.body || {};
 
-    if (!currentPassword || !newPassword) {
+    if (
+      typeof currentPassword !== "string" ||
+      typeof newPassword !== "string" ||
+      !currentPassword ||
+      !newPassword
+    ) {
       return res.status(400).json({
         message: "Current password and new password are required.",
       });
     }
 
-    if (newPassword.length < 6) {
+    if (
+      newPassword.length < PASSWORD_MIN_LENGTH ||
+      Buffer.byteLength(newPassword, "utf8") > PASSWORD_MAX_BYTES
+    ) {
       return res.status(400).json({
-        message: "New password must be at least 6 characters long.",
+        message:
+          "New password must be at least 12 characters and no more than 72 bytes.",
       });
     }
 
-    // Get the currently logged-in user
+    if (currentPassword === newPassword) {
+      return res.status(400).json({
+        message: "Your new password must be different from your current password.",
+      });
+    }
+
     const result = await pool.query(
-      "SELECT id, password FROM users WHERE id = $1",
+      `SELECT id, password
+       FROM users
+       WHERE id = $1`,
       [req.user.id]
     );
 
@@ -229,7 +204,6 @@ const changePassword = async (req, res) => {
 
     const user = result.rows[0];
 
-    // Check current password
     const passwordMatch = await bcrypt.compare(
       currentPassword,
       user.password
@@ -241,24 +215,34 @@ const changePassword = async (req, res) => {
       });
     }
 
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
 
-    // Update password
-    await pool.query(
-      "UPDATE users SET password = $1 WHERE id = $2",
+    // Incrementing token_version invalidates tokens issued before
+    // this password change.
+    const updateResult = await pool.query(
+      `UPDATE users
+       SET password = $1,
+           token_version = token_version + 1
+       WHERE id = $2
+       RETURNING id`,
       [hashedPassword, req.user.id]
     );
 
-    res.json({
-      message: "Password changed successfully.",
-    });
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({
+        message: "User not found.",
+      });
+    }
 
+    return res.json({
+      message:
+        "Password changed successfully. Please log in again with your new password.",
+    });
   } catch (error) {
     console.error("Change password error:", error);
 
-    res.status(500).json({
-      message: "Server error while changing password.",
+    return res.status(500).json({
+      message: "Server error while changing your password.",
     });
   }
 };
