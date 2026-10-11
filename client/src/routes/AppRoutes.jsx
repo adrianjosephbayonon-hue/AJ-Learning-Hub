@@ -1,11 +1,10 @@
-import { Routes, Route } from "react-router-dom";
+
+import { Routes, Route, Navigate } from "react-router-dom";
 
 import ProtectedRoute from "./ProtectedRoute";
 import InstructorRoute from "./InstructorRoute";
 
 import Login from "../pages/Login/Login";
-import Register from "../pages/Register/Register";
-
 import Dashboard from "../pages/Dashboard/Dashboard";
 import Courses from "../pages/Courses/Courses";
 import CourseDetails from "../pages/CourseDetails/CourseDetails";
@@ -17,7 +16,6 @@ import Calendar from "../pages/Calendar/Calendar";
 import Messages from "../pages/Messages/Messages";
 import Profile from "../pages/Profile/Profile";
 import Settings from "../pages/Settings/Settings";
-
 import Announcements from "../pages/Announcements/Announcements";
 import Notifications from "../pages/Notifications/Notifications";
 
@@ -25,6 +23,8 @@ import InstructorSubmissions from "../pages/InstructorSubmissions/InstructorSubm
 import InstructorAssignments from "../pages/InstructorAssignments/InstructorAssignments";
 
 import DashboardLayout from "../layouts/DashboardLayout";
+import CreateStudentAccount from "../pages/CreateStudentAccount/CreateStudentAccount";
+
 
 function AppRoutes() {
   return (
@@ -34,14 +34,18 @@ function AppRoutes() {
       {/* ========================= */}
 
       <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
+
+      {/* Registration is no longer publicly accessible. */}
+      <Route
+        path="/register"
+        element={<Navigate to="/login" replace />}
+      />
 
       {/* ========================= */}
       {/* PROTECTED ROUTES */}
       {/* ========================= */}
 
       <Route element={<ProtectedRoute />}>
-
         {/* Dashboard */}
         <Route
           path="/"
@@ -61,7 +65,7 @@ function AppRoutes() {
           }
         />
 
-        {/* Instructor Dashboard */}
+        {/* Instructor-only routes */}
         <Route element={<InstructorRoute />}>
           <Route
             path="/instructor"
@@ -110,7 +114,7 @@ function AppRoutes() {
           }
         />
 
-        {/* Materials */}
+        {/* Learning materials */}
         <Route
           path="/materials"
           element={
@@ -130,7 +134,7 @@ function AppRoutes() {
           }
         />
 
-        {/* Submission History */}
+        {/* Submission history */}
         <Route
           path="/submission-history"
           element={
@@ -209,8 +213,23 @@ function AppRoutes() {
             </DashboardLayout>
           }
         />
-
       </Route>
+
+
+      <Route
+  path="/create-student-account"
+  element={
+    <DashboardLayout>
+      <CreateStudentAccount />
+    </DashboardLayout>
+  }
+/>
+
+      {/* Unknown routes return users to the login page. */}
+      <Route
+        path="*"
+        element={<Navigate to="/login" replace />}
+      />
     </Routes>
   );
 }

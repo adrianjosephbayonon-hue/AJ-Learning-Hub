@@ -1,3 +1,4 @@
+
 const express = require("express");
 
 const {
@@ -8,16 +9,17 @@ const {
 } = require("../controllers/submissionController");
 
 const authenticateToken = require("../middleware/authMiddleware");
-const instructorOnly = require("../middleware/instructorMiddleware");
+const instructorMiddleware = require("../middleware/instructorMiddleware");
 const upload = require("../middleware/uploadMiddleware");
 
 const router = express.Router();
 
 // =====================================================
-// STUDENT
-// GET LOGGED-IN STUDENT'S SUBMISSIONS
+// STUDENT: VIEW OWN SUBMISSIONS
 // =====================================================
 
+// The controller uses req.user.id to return only the
+// submissions belonging to the currently logged-in user.
 router.get(
   "/my-submissions",
   authenticateToken,
@@ -25,38 +27,47 @@ router.get(
 );
 
 // =====================================================
-// STUDENT
-// SUBMIT ASSIGNMENT
+// STUDENT: SUBMIT AN ASSIGNMENT
 // =====================================================
 
+// Only authenticated students may submit files.
+// The controller must also verify course enrollment.
 router.post(
   "/:assignmentId",
   authenticateToken,
+  (req, res, next) => {
+    if (req.user?.role !== "student") {
+      return res.status(403).json({
+        message: "Student access required.",
+      });
+    }
+
+    return next();
+  },
   upload.single("assignmentFile"),
   submitAssignment
 );
 
 // =====================================================
-// INSTRUCTOR
-// GET ALL SUBMISSIONS
+// INSTRUCTOR: VIEW ALL SUBMISSIONS
 // =====================================================
 
+// Never expose all students' submissions to a student account.
 router.get(
   "/all",
   authenticateToken,
-  instructorOnly,
+  instructorMiddleware,
   getAllSubmissions
 );
 
 // =====================================================
-// INSTRUCTOR
-// GRADE SUBMISSION
+// INSTRUCTOR: GRADE A SUBMISSION
 // =====================================================
 
 router.put(
   "/:id/grade",
   authenticateToken,
-  instructorOnly,
+  instructorMiddleware,
   gradeSubmission
 );
 

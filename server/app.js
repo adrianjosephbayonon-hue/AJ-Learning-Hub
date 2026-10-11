@@ -1,11 +1,13 @@
+// Load environment variables from server/.env
 require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
-const path = require("path");
+const helmet = require("helmet");
 
 const pool = require("./config/db");
 
+// Import API route modules
 const authRoutes = require("./routes/authRoutes");
 const courseRoutes = require("./routes/courseRoutes");
 const assignmentRoutes = require("./routes/assignmentRoutes");
@@ -16,112 +18,171 @@ const settingsRoutes = require("./routes/settingsRoutes");
 const app = express();
 
 // =====================================================
-// MIDDLEWARE
+// SECURITY CONFIGURATION
 // =====================================================
 
-app.use(cors());
+// Prevent Express from exposing its technology through the X-Powered-By header.
+app.disable("x-powered-by");
 
-app.use(express.json());
+// Add security-related HTTP headers.
+app.use(helmet());
 
-app.use(express.urlencoded({ extended: true }));
+// Read permitted frontend origins from server/.env.
+// Multiple origins can be separated by commas.
+const allowedOrigins = (
+  process.env.CLIENT_URL || "http://localhost:5173"
+)
+  .split(",")
+  .map((origin) => origin.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
 
-// =====================================================
-// UPLOADS FOLDER
-// =====================================================
-
-// Allows uploaded files to be accessed through:
-// http://localhost:5000/uploads/filename
+// Allow requests from approved frontend origins.
 app.use(
-  "/uploads",
-  express.static(path.join(__dirname, "uploads"))
+  cors({
+    origin(origin, callback) {
+      // Allow requests without an Origin header, such as server-to-server
+      // requests. Protected endpoints must still enforce authentication.
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      const normalizedOrigin = origin.replace(/\/+$/, "");
+
+      if (allowedOrigins.includes(normalizedOrigin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Origin not allowed by CORS."));
+    },
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: false,
+    maxAge: 600,
+  })
+);
+
+// Limit incoming request body sizes to help reduce abuse.
+app.use(express.json({ limit: "1mb" }));
+
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "1mb",
+    parameterLimit: 100,
+  })
 );
 
 // =====================================================
-// TEST API
+// HEALTH CHECK
 // =====================================================
 
+// Confirm that the backend server is running.
 app.get("/", (req, res) => {
-  res.json({
-    message: "AJ Learning Hub API is running 🚀",
+  return res.json({
+    message: "AJ Learning Hub API is running.",
   });
 });
 
 // =====================================================
-// TEST DATABASE
+// DATABASE HEALTH CHECK
 // =====================================================
 
+// Test the PostgreSQL connection without exposing database credentials.
 app.get("/api/test-db", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
 
-    res.json({
-      message: "Database connected successfully ✅",
+    return res.json({
+      message: "Database connected successfully.",
       time: result.rows[0].now,
     });
   } catch (error) {
-    console.error("Database error:", error);
+    // Keep detailed database errors in the server logs, not the API response.
+    console.error("Database connection error:", error.message);
 
-    res.status(500).json({
-      message: "Database connection failed ❌",
+    return res.status(500).json({
+      message: "Database connection failed.",
     });
   }
 });
 
 // =====================================================
-// AUTH ROUTES
+// API ROUTES
 // =====================================================
 
+// Authentication and account management.
 app.use("/api/auth", authRoutes);
 
-// =====================================================
-// COURSE ROUTES
-// =====================================================
-
+// Course listing, enrollment, and course-related operations.
 app.use("/api/courses", courseRoutes);
 
-// =====================================================
-// ASSIGNMENT ROUTES
-// =====================================================
-
+// Assignment listing, management, and protected downloads.
 app.use("/api/assignments", assignmentRoutes);
 
-// =====================================================
-// SUBMISSION ROUTES
-// =====================================================
-
+// Student submissions and instructor grading.
 app.use("/api/submissions", submissionRoutes);
 
-// =====================================================
-// MATERIAL ROUTES
-// =====================================================
- 
+// Learning materials and protected material operations.
 app.use("/api/materials", materialRoutes);
 
-
-
-//setting routes
-
+// User settings and preferences.
 app.use("/api/settings", settingsRoutes);
 
-
-
-
 // =====================================================
-// ERROR HANDLER
+// NOT FOUND HANDLER
 // =====================================================
 
+// Return a consistent JSON response for unknown endpoints.
+app.use((req, res) => {
+  return res.status(404).json({
+    message: "API endpoint not found.",
+  });
+});
+
+// =====================================================
+// CENTRAL ERROR HANDLER
+// =====================================================
+
+// Convert common request errors into safe, understandable responses.
 app.use((error, req, res, next) => {
+  // Pass errors onward if a response has already started.
+  if (res.headersSent) {
+    return next(error);
+  }
+
+  // Handle Multer's upload size limit.
+  if (error.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({
+      message: "File is too large. Check the upload size limit.",
+    });
+  }
+
+  // Handle malformed JSON.
+  if (error.type === "entity.parse.failed") {
+    return res.status(400).json({
+      message: "Invalid JSON request body.",
+    });
+  }
+
+  // Handle oversized request bodies.
+  if (error.type === "entity.too.large") {
+    return res.status(413).json({
+      message: "Request body is too large.",
+    });
+  }
+
+  // Handle requests from origins that are not allowed.
+  if (error.message === "Origin not allowed by CORS.") {
+    return res.status(403).json({
+      message: "This origin is not allowed to access the API.",
+    });
+  }
+
+  // Log unexpected errors on the server without returning internals to clients.
   console.error("Server error:", error);
 
-  // Multer file-size error
-  if (error.code === "LIMIT_FILE_SIZE") {
-  return res.status(400).json({
-    message: "File is too large. Maximum size is 50 MB.",
-  });
-}
-
-  res.status(500).json({
-    message: error.message || "Internal server error.",
+  return res.status(500).json({
+    message: "Internal server error.",
   });
 });
 
@@ -131,8 +192,7 @@ app.use((error, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
+// Start listening for API requests.
 app.listen(PORT, () => {
-  console.log(
-    `AJ Learning Hub server running on port ${PORT} 🚀`
-  );
+  console.log(`AJ Learning Hub server running on port ${PORT}.`);
 });

@@ -1,15 +1,16 @@
 import { Link } from "react-router-dom";
+import { useAuth } from "../../contexts/useAuth";
 
 function Sidebar() {
+  const { user } = useAuth();
+
   return (
     <aside className="w-64 min-h-screen p-6 bg-slate-900 dark:bg-slate-950 text-white transition-colors duration-300">
-
       <h2 className="text-2xl font-bold mb-8">
         AJ Learning Hub
       </h2>
 
       <nav className="flex flex-col gap-4">
-
         <Link
           to="/dashboard"
           className="hover:text-blue-400 transition-colors"
@@ -87,13 +88,29 @@ function Sidebar() {
           ⚙️ Settings
         </Link>
 
-        <Link
-          to="/instructor"
-          className="hover:text-blue-400 transition-colors"
-        >
-          🎓 Instructor Panel
-        </Link>
+        {user?.role === "instructor" && (
+          <>
+            <div className="border-t border-slate-700 my-2" />
 
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Instructor Tools
+            </p>
+
+            <Link
+              to="/instructor"
+              className="hover:text-blue-400 transition-colors"
+            >
+              🎓 Instructor Panel
+            </Link>
+
+            <Link
+              to="/create-student-account"
+              className="hover:text-blue-400 transition-colors"
+            >
+              👤 Create Student Account
+            </Link>
+          </>
+        )}
       </nav>
     </aside>
   );
