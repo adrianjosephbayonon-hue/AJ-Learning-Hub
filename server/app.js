@@ -1,13 +1,14 @@
-// Load environment variables from server/.env
+// Load environment variables from server/.env before other configuration.
 require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
+const multer = require("multer");
 
 const pool = require("./config/db");
 
-// Import API route modules
+// Import API route modules.
 const authRoutes = require("./routes/authRoutes");
 const courseRoutes = require("./routes/courseRoutes");
 const assignmentRoutes = require("./routes/assignmentRoutes");
@@ -21,14 +22,14 @@ const app = express();
 // SECURITY CONFIGURATION
 // =====================================================
 
-// Prevent Express from exposing its technology through the X-Powered-By header.
+// Prevent Express from exposing its technology through HTTP headers.
 app.disable("x-powered-by");
 
-// Add security-related HTTP headers.
+// Add standard HTTP security headers.
 app.use(helmet());
 
-// Read permitted frontend origins from server/.env.
-// Multiple origins can be separated by commas.
+// Read allowed frontend origins from .env.
+// Multiple origins may be separated by commas.
 const allowedOrigins = (
   process.env.CLIENT_URL || "http://localhost:5173"
 )
@@ -36,12 +37,12 @@ const allowedOrigins = (
   .map((origin) => origin.trim().replace(/\/+$/, ""))
   .filter(Boolean);
 
-// Allow requests from approved frontend origins.
+// Configure CORS to allow only explicitly approved browser origins.
 app.use(
   cors({
     origin(origin, callback) {
-      // Allow requests without an Origin header, such as server-to-server
-      // requests. Protected endpoints must still enforce authentication.
+      // Requests without an Origin header may come from tools or server-side
+      // clients. Authentication must still be enforced by protected routes.
       if (!origin) {
         return callback(null, true);
       }
@@ -61,7 +62,7 @@ app.use(
   })
 );
 
-// Limit incoming request body sizes to help reduce abuse.
+// Limit JSON and URL-encoded request bodies to reduce resource abuse.
 app.use(express.json({ limit: "1mb" }));
 
 app.use(
@@ -76,7 +77,7 @@ app.use(
 // HEALTH CHECK
 // =====================================================
 
-// Confirm that the backend server is running.
+// Confirm that the API server is running.
 app.get("/", (req, res) => {
   return res.json({
     message: "AJ Learning Hub API is running.",
@@ -87,7 +88,7 @@ app.get("/", (req, res) => {
 // DATABASE HEALTH CHECK
 // =====================================================
 
-// Test the PostgreSQL connection without exposing database credentials.
+// Test PostgreSQL connectivity without exposing credentials.
 app.get("/api/test-db", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
@@ -97,7 +98,7 @@ app.get("/api/test-db", async (req, res) => {
       time: result.rows[0].now,
     });
   } catch (error) {
-    // Keep detailed database errors in the server logs, not the API response.
+    // Keep internal database details in server logs only.
     console.error("Database connection error:", error.message);
 
     return res.status(500).json({
@@ -113,10 +114,10 @@ app.get("/api/test-db", async (req, res) => {
 // Authentication and account management.
 app.use("/api/auth", authRoutes);
 
-// Course listing, enrollment, and course-related operations.
+// Courses and student enrollment.
 app.use("/api/courses", courseRoutes);
 
-// Assignment listing, management, and protected downloads.
+// Assignment management and protected downloads.
 app.use("/api/assignments", assignmentRoutes);
 
 // Student submissions and instructor grading.
@@ -128,11 +129,14 @@ app.use("/api/materials", materialRoutes);
 // User settings and preferences.
 app.use("/api/settings", settingsRoutes);
 
+// Do not expose uploaded files through a public static directory.
+// Files should be served through authorized download endpoints.
+
 // =====================================================
 // NOT FOUND HANDLER
 // =====================================================
 
-// Return a consistent JSON response for unknown endpoints.
+// Return JSON for requests that do not match any registered route.
 app.use((req, res) => {
   return res.status(404).json({
     message: "API endpoint not found.",
@@ -143,42 +147,63 @@ app.use((req, res) => {
 // CENTRAL ERROR HANDLER
 // =====================================================
 
-// Convert common request errors into safe, understandable responses.
+// Convert expected request and upload errors into safe API responses.
 app.use((error, req, res, next) => {
-  // Pass errors onward if a response has already started.
+  // Delegate if the response has already started.
   if (res.headersSent) {
     return next(error);
   }
 
-  // Handle Multer's upload size limit.
+  // Handle files exceeding the configured upload limit.
   if (error.code === "LIMIT_FILE_SIZE") {
     return res.status(400).json({
       message: "File is too large. Check the upload size limit.",
     });
   }
 
-  // Handle malformed JSON.
+  // Handle disallowed file extensions or extension/MIME mismatches.
+  if (error.code === "INVALID_FILE_TYPE") {
+    return res.status(400).json({
+      message: error.message,
+    });
+  }
+
+  // Handle unexpected upload fields or too many files.
+  if (
+    error instanceof multer.MulterError &&
+    [
+      "LIMIT_UNEXPECTED_FILE",
+      "LIMIT_FILE_COUNT",
+      "LIMIT_PART_COUNT",
+    ].includes(error.code)
+  ) {
+    return res.status(400).json({
+      message: "Unexpected upload field or too many uploaded items.",
+    });
+  }
+
+  // Handle malformed JSON request bodies.
   if (error.type === "entity.parse.failed") {
     return res.status(400).json({
       message: "Invalid JSON request body.",
     });
   }
 
-  // Handle oversized request bodies.
+  // Handle request bodies that exceed the configured parser limit.
   if (error.type === "entity.too.large") {
     return res.status(413).json({
       message: "Request body is too large.",
     });
   }
 
-  // Handle requests from origins that are not allowed.
+  // Handle requests from unapproved browser origins.
   if (error.message === "Origin not allowed by CORS.") {
     return res.status(403).json({
       message: "This origin is not allowed to access the API.",
     });
   }
 
-  // Log unexpected errors on the server without returning internals to clients.
+  // Log unexpected errors without returning internal details to clients.
   console.error("Server error:", error);
 
   return res.status(500).json({
@@ -192,7 +217,7 @@ app.use((error, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-// Start listening for API requests.
+// Start the API server.
 app.listen(PORT, () => {
   console.log(`AJ Learning Hub server running on port ${PORT}.`);
 });

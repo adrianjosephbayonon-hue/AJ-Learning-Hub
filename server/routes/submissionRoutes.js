@@ -1,3 +1,5 @@
+// submissionRoutes.js
+// Defines secure routes for assignment submissions, downloads, and grading.
 
 const express = require("express");
 
@@ -5,12 +7,15 @@ const {
   submitAssignment,
   getMySubmissions,
   getAllSubmissions,
+  downloadSubmission,
   gradeSubmission,
 } = require("../controllers/submissionController");
 
 const authenticateToken = require("../middleware/authMiddleware");
 const instructorMiddleware = require("../middleware/instructorMiddleware");
-const upload = require("../middleware/uploadMiddleware");
+
+// Use a separate upload directory and validation policy for submissions.
+const upload = require("../middleware/submissionUploadMiddleware");
 
 const router = express.Router();
 
@@ -18,8 +23,7 @@ const router = express.Router();
 // STUDENT: VIEW OWN SUBMISSIONS
 // =====================================================
 
-// The controller uses req.user.id to return only the
-// submissions belonging to the currently logged-in user.
+// Return only submissions belonging to the authenticated student.
 router.get(
   "/my-submissions",
   authenticateToken,
@@ -30,8 +34,8 @@ router.get(
 // STUDENT: SUBMIT AN ASSIGNMENT
 // =====================================================
 
-// Only authenticated students may submit files.
-// The controller must also verify course enrollment.
+// Only students may submit files. The controller also verifies
+// course enrollment and prevents duplicate submissions.
 router.post(
   "/:assignmentId",
   authenticateToken,
@@ -52,7 +56,7 @@ router.post(
 // INSTRUCTOR: VIEW ALL SUBMISSIONS
 // =====================================================
 
-// Never expose all students' submissions to a student account.
+// Only instructors may view submissions from all students.
 router.get(
   "/all",
   authenticateToken,
@@ -61,9 +65,22 @@ router.get(
 );
 
 // =====================================================
+// STUDENT / INSTRUCTOR: DOWNLOAD A SUBMISSION
+// =====================================================
+
+// The controller ensures students can download only their own files.
+// Instructors may download submissions for grading.
+router.get(
+  "/:id/download",
+  authenticateToken,
+  downloadSubmission
+);
+
+// =====================================================
 // INSTRUCTOR: GRADE A SUBMISSION
 // =====================================================
 
+// Only instructors may assign grades and feedback.
 router.put(
   "/:id/grade",
   authenticateToken,

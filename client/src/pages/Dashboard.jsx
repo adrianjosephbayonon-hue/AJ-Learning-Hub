@@ -1,18 +1,22 @@
+// Dashboard.jsx
+// Displays the main dashboard with course, assignment, announcement,
+// and grade summaries, plus recent announcements and upcoming events.
+
 import DashboardLayout from "../layouts/DashboardLayout";
 
 function Dashboard() {
   return (
     <DashboardLayout>
       <div className="dashboard">
-
+        {/* Dashboard heading and welcome message */}
         <h1>Dashboard</h1>
 
         <p className="welcome">
           Welcome back! Here's what's happening today.
         </p>
 
+        {/* Summary cards for key academic information */}
         <div className="cards">
-
           <div className="card">
             <h3>📚 My Courses</h3>
             <h2>6</h2>
@@ -32,45 +36,32 @@ function Dashboard() {
             <h3>📊 Average Grade</h3>
             <h2>94%</h2>
           </div>
-
         </div>
 
+        {/* Secondary dashboard sections */}
         <div className="dashboard-sections">
-
+          {/* Recent announcements */}
           <div className="recent">
-
             <h2>Recent Announcements</h2>
 
             <ul>
-
               <li>📢 Midterm Exam starts next week.</li>
-
               <li>📢 Programming Languages Assignment uploaded.</li>
-
               <li>📢 Software Engineering 1 Quiz on Friday.</li>
-
             </ul>
-
           </div>
 
+          {/* Upcoming academic events */}
           <div className="calendar">
-
             <h2>Upcoming Events</h2>
 
             <ul>
-
               <li>📅 Programming Languages Class</li>
-
               <li>📅 Software Engineering Meeting</li>
-
               <li>📅 Automata Theory and Formal Languages Quiz</li>
-
             </ul>
-
           </div>
-
         </div>
-
       </div>
     </DashboardLayout>
   );

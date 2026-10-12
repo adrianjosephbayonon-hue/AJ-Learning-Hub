@@ -1,6 +1,78 @@
+// server/controllers/assignmentController.js
+
 const fs = require("fs");
 const path = require("path");
 const pool = require("../config/db");
+
+// =====================================================
+// FILE SECURITY HELPERS
+// =====================================================
+
+// Define the trusted directory where assignment files must be stored.
+const uploadsRoot = path.resolve(__dirname, "..", "uploads");
+
+// Validate a positive integer ID from request parameters or form data.
+const isValidId = (value) => {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0;
+};
+
+// Ensure that a file path points inside the trusted uploads directory.
+// This prevents path traversal attacks against files outside that directory.
+const isPathInsideUploads = (filePath) => {
+  if (typeof filePath !== "string" || !filePath.trim()) {
+    return false;
+  }
+
+  const resolvedPath = path.resolve(filePath);
+  const relativePath = path.relative(uploadsRoot, resolvedPath);
+
+  return (
+    relativePath !== "" &&
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relativePath)
+  );
+};
+
+// Remove an uploaded file when a database operation fails.
+// File deletion errors are logged without hiding the original error.
+const removeUploadedFile = async (filePath) => {
+  if (!filePath || !isPathInsideUploads(filePath)) {
+    return;
+  }
+
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.error("Unable to remove uploaded file:", error.message);
+    }
+  }
+};
+
+// Verify that the current user has instructor privileges.
+const requireInstructor = (req, res) => {
+  if (!req.user || req.user.role !== "instructor") {
+    res.status(403).json({
+      message: "Instructor access required.",
+    });
+
+    return false;
+  }
+
+  return true;
+};
+
+// Return assignment information without exposing internal filesystem paths.
+const publicAssignment = (assignment) => {
+  if (!assignment) {
+    return assignment;
+  }
+
+  const { file_path, ...safeAssignment } = assignment;
+  return safeAssignment;
+};
 
 // =====================================================
 // GET ALL ASSIGNMENTS
@@ -8,116 +80,84 @@ const pool = require("../config/db");
 
 const getAssignments = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const role = req.user.role;
+    const userId = req.user?.id;
+    const role = req.user?.role;
+
+    if (!userId || !["student", "instructor"].includes(role)) {
+      return res.status(403).json({
+        message: "You are not authorized to view assignments.",
+      });
+    }
 
     let result;
 
-    // =================================================
-    // INSTRUCTOR
-    // =================================================
-
     if (role === "instructor") {
+      // Instructors can view assignments and submission counts.
       result = await pool.query(`
         SELECT
-          assignments.id,
-          assignments.title,
-          assignments.description,
-          assignments.due_date,
-          assignments.course_id,
-          assignments.status,
-          assignments.created_at,
-          assignments.file_name,
-          assignments.file_path,
-
-          courses.title AS course_title,
-          courses.course_code,
-
-          COUNT(submissions.id)::int AS submission_count
-
-        FROM assignments
-
-        JOIN courses
-          ON assignments.course_id = courses.id
-
-        LEFT JOIN submissions
-          ON submissions.assignment_id = assignments.id
-
+          a.id,
+          a.title,
+          a.description,
+          a.due_date,
+          a.course_id,
+          a.status,
+          a.created_at,
+          a.file_name,
+          c.title AS course_title,
+          c.course_code,
+          COUNT(s.id)::int AS submission_count
+        FROM assignments AS a
+        INNER JOIN courses AS c
+          ON a.course_id = c.id
+        LEFT JOIN submissions AS s
+          ON s.assignment_id = a.id
         GROUP BY
-          assignments.id,
-          assignments.title,
-          assignments.description,
-          assignments.due_date,
-          assignments.course_id,
-          assignments.status,
-          assignments.created_at,
-          assignments.file_name,
-          assignments.file_path,
-          courses.title,
-          courses.course_code
-
-        ORDER BY assignments.due_date ASC
+          a.id,
+          c.title,
+          c.course_code
+        ORDER BY a.due_date ASC
       `);
-    }
-
-    // =================================================
-    // STUDENT
-    // =================================================
-
-    else {
+    } else {
+      // Students can view assignments only for their enrolled courses.
       result = await pool.query(
         `
         SELECT
-          assignments.id,
-          assignments.title,
-          assignments.description,
-          assignments.due_date,
-          assignments.course_id,
-          assignments.status,
-          assignments.created_at,
-          assignments.file_name,
-          assignments.file_path,
-
-          courses.title AS course_title,
-          courses.course_code,
-
+          a.id,
+          a.title,
+          a.description,
+          a.due_date,
+          a.course_id,
+          a.status,
+          a.created_at,
+          a.file_name,
+          c.title AS course_title,
+          c.course_code,
           CASE
-            WHEN submissions.id IS NOT NULL
-            THEN 'submitted'
+            WHEN s.id IS NOT NULL THEN 'submitted'
             ELSE 'pending'
           END AS submission_status,
-
-          submissions.grade,
-          submissions.feedback
-
-        FROM assignments
-
-        JOIN courses
-          ON assignments.course_id = courses.id
-
-        INNER JOIN course_enrollments
-          ON courses.id = course_enrollments.course_id
-
-        LEFT JOIN submissions
-          ON submissions.assignment_id = assignments.id
-          AND submissions.student_id = $1
-
-        WHERE course_enrollments.student_id = $1
-
-        ORDER BY assignments.due_date ASC
+          s.grade,
+          s.feedback
+        FROM assignments AS a
+        INNER JOIN courses AS c
+          ON a.course_id = c.id
+        INNER JOIN course_enrollments AS ce
+          ON ce.course_id = c.id
+        LEFT JOIN submissions AS s
+          ON s.assignment_id = a.id
+          AND s.student_id = $1
+        WHERE ce.student_id = $1
+        ORDER BY a.due_date ASC
         `,
         [userId]
       );
     }
 
-    res.json(result.rows);
+    return res.json(result.rows.map(publicAssignment));
   } catch (error) {
-    console.error(
-      "Error fetching assignments:",
-      error
-    );
+    console.error("Error fetching assignments:", error.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to fetch assignments.",
     });
   }
@@ -129,91 +169,78 @@ const getAssignments = async (req, res) => {
 
 const getAssignmentById = async (req, res) => {
   try {
-    const { id } = req.params;
+    const assignmentId = Number(req.params.id);
+    const userId = req.user?.id;
+    const role = req.user?.role;
 
-    const userId = req.user.id;
-    const role = req.user.role;
+    if (!isValidId(assignmentId)) {
+      return res.status(400).json({
+        message: "Invalid assignment ID.",
+      });
+    }
+
+    if (!userId || !["student", "instructor"].includes(role)) {
+      return res.status(403).json({
+        message: "You are not authorized to view this assignment.",
+      });
+    }
 
     let result;
-
-    // =================================================
-    // INSTRUCTOR
-    // =================================================
 
     if (role === "instructor") {
       result = await pool.query(
         `
         SELECT
-          assignments.id,
-          assignments.title,
-          assignments.description,
-          assignments.due_date,
-          assignments.course_id,
-          assignments.status,
-          assignments.created_at,
-          assignments.file_name,
-          assignments.file_path,
-
-          courses.title AS course_title,
-          courses.course_code
-
-        FROM assignments
-
-        JOIN courses
-          ON assignments.course_id = courses.id
-
-        WHERE assignments.id = $1
+          a.id,
+          a.title,
+          a.description,
+          a.due_date,
+          a.course_id,
+          a.status,
+          a.created_at,
+          a.file_name,
+          c.title AS course_title,
+          c.course_code
+        FROM assignments AS a
+        INNER JOIN courses AS c
+          ON a.course_id = c.id
+        WHERE a.id = $1
         `,
-        [id]
+        [assignmentId]
       );
-    }
-
-    // =================================================
-    // STUDENT
-    // =================================================
-
-    else {
+    } else {
+      // Check enrollment in the same query that retrieves the assignment.
       result = await pool.query(
         `
         SELECT
-          assignments.id,
-          assignments.title,
-          assignments.description,
-          assignments.due_date,
-          assignments.course_id,
-          assignments.status,
-          assignments.created_at,
-          assignments.file_name,
-          assignments.file_path,
-
-          courses.title AS course_title,
-          courses.course_code,
-
+          a.id,
+          a.title,
+          a.description,
+          a.due_date,
+          a.course_id,
+          a.status,
+          a.created_at,
+          a.file_name,
+          c.title AS course_title,
+          c.course_code,
           CASE
-            WHEN submissions.id IS NOT NULL
-            THEN 'submitted'
+            WHEN s.id IS NOT NULL THEN 'submitted'
             ELSE 'pending'
           END AS submission_status,
-
-          submissions.grade,
-          submissions.feedback
-
-        FROM assignments
-
-        JOIN courses
-          ON assignments.course_id = courses.id
-
-        INNER JOIN course_enrollments
-          ON courses.id = course_enrollments.course_id
-
-        LEFT JOIN submissions
-          ON submissions.assignment_id = assignments.id
-          AND submissions.student_id = $1
-
-        WHERE assignments.id = $2
-          AND course_enrollments.student_id = $1
+          s.grade,
+          s.feedback
+        FROM assignments AS a
+        INNER JOIN courses AS c
+          ON a.course_id = c.id
+        INNER JOIN course_enrollments AS ce
+          ON ce.course_id = c.id
+        LEFT JOIN submissions AS s
+          ON s.assignment_id = a.id
+          AND s.student_id = $1
+        WHERE a.id = $2
+          AND ce.student_id = $1
         `,
-        [userId, id]
+        [userId, assignmentId]
       );
     }
 
@@ -223,14 +250,11 @@ const getAssignmentById = async (req, res) => {
       });
     }
 
-    res.json(result.rows[0]);
+    return res.json(publicAssignment(result.rows[0]));
   } catch (error) {
-    console.error(
-      "Error fetching assignment:",
-      error
-    );
+    console.error("Error fetching assignment:", error.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to fetch assignment.",
     });
   }
@@ -242,77 +266,99 @@ const getAssignmentById = async (req, res) => {
 
 const createAssignment = async (req, res) => {
   try {
-    const {
-      title,
-      description,
-      due_date,
-      course_id,
-    } = req.body;
+    // Enforce instructor permissions at the controller level as well.
+    if (!requireInstructor(req, res)) {
+      await removeUploadedFile(req.file?.path);
+      return;
+    }
 
-    // =================================================
-    // VALIDATE
-    // =================================================
+    const title =
+      typeof req.body.title === "string" ? req.body.title.trim() : "";
 
-    if (!title || title.trim() === "") {
+    const description =
+      typeof req.body.description === "string"
+        ? req.body.description.trim()
+        : "";
+
+    const { due_date, course_id } = req.body;
+
+    if (!title) {
+      await removeUploadedFile(req.file?.path);
+
       return res.status(400).json({
         message: "Assignment title is required.",
       });
     }
 
-    if (!course_id) {
+    if (title.length > 200) {
+      await removeUploadedFile(req.file?.path);
+
       return res.status(400).json({
-        message: "Please select a course.",
+        message: "Assignment title cannot exceed 200 characters.",
       });
     }
 
-    if (!due_date) {
+    if (description.length > 10000) {
+      await removeUploadedFile(req.file?.path);
+
       return res.status(400).json({
-        message: "Due date is required.",
+        message: "Assignment description is too long.",
       });
     }
 
-    // =================================================
-    // CHECK COURSE
-    // =================================================
+    if (!isValidId(course_id)) {
+      await removeUploadedFile(req.file?.path);
 
+      return res.status(400).json({
+        message: "Please select a valid course.",
+      });
+    }
+
+    if (
+      typeof due_date !== "string" ||
+      !due_date.trim() ||
+      !Number.isFinite(Date.parse(due_date))
+    ) {
+      await removeUploadedFile(req.file?.path);
+
+      return res.status(400).json({
+        message: "A valid due date is required.",
+      });
+    }
+
+    // Verify that the selected course exists.
     const courseResult = await pool.query(
-      `
-      SELECT
-        id,
-        title,
-        course_code
-      FROM courses
-      WHERE id = $1
-      `,
-      [course_id]
+      "SELECT id FROM courses WHERE id = $1",
+      [Number(course_id)]
     );
 
     if (courseResult.rows.length === 0) {
+      await removeUploadedFile(req.file?.path);
+
       return res.status(404).json({
         message: "Selected course was not found.",
       });
     }
 
-    // =================================================
-    // FILE INFORMATION
-    // =================================================
-
+    // Store the original filename for display, but never trust it as a path.
     const fileName = req.file
-      ? req.file.originalname
+      ? path.basename(req.file.originalname)
       : null;
 
-    const filePath = req.file
-      ? req.file.path
-      : null;
+    const filePath = req.file?.path || null;
 
-    // =================================================
-    // CREATE
-    // =================================================
+    // Do not store an uploaded file outside the trusted directory.
+    if (filePath && !isPathInsideUploads(filePath)) {
+      await removeUploadedFile(filePath);
+
+      return res.status(400).json({
+        message: "The uploaded file location is invalid.",
+      });
+    }
 
     const result = await pool.query(
       `
-      INSERT INTO assignments
-      (
+      INSERT INTO assignments (
         title,
         description,
         due_date,
@@ -320,45 +366,29 @@ const createAssignment = async (req, res) => {
         file_name,
         file_path
       )
-      VALUES
-      ($1, $2, $3, $4, $5, $6)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
       `,
       [
-        title.trim(),
-        description?.trim() || null,
+        title,
+        description || null,
         due_date,
-        course_id,
+        Number(course_id),
         fileName,
         filePath,
       ]
     );
 
-    res.status(201).json({
+    return res.status(201).json({
       message: "Assignment created successfully.",
-      assignment: result.rows[0],
+      assignment: publicAssignment(result.rows[0]),
     });
   } catch (error) {
-    console.error(
-      "Error creating assignment:",
-      error
-    );
+    await removeUploadedFile(req.file?.path);
 
-    // Delete uploaded file if database insert fails
-    if (req.file?.path) {
-      try {
-        if (fs.existsSync(req.file.path)) {
-          fs.unlinkSync(req.file.path);
-        }
-      } catch (deleteError) {
-        console.error(
-          "Error deleting uploaded assignment file:",
-          deleteError
-        );
-      }
-    }
+    console.error("Error creating assignment:", error.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to create assignment.",
     });
   }
@@ -370,99 +400,114 @@ const createAssignment = async (req, res) => {
 
 const updateAssignment = async (req, res) => {
   try {
-    const { id } = req.params;
+    if (!requireInstructor(req, res)) {
+      await removeUploadedFile(req.file?.path);
+      return;
+    }
 
-    const {
-      title,
-      description,
-      due_date,
-      course_id,
-    } = req.body;
+    const assignmentId = Number(req.params.id);
 
-    // =================================================
-    // VALIDATE
-    // =================================================
+    const title =
+      typeof req.body.title === "string" ? req.body.title.trim() : "";
 
-    if (!title || title.trim() === "") {
+    const description =
+      typeof req.body.description === "string"
+        ? req.body.description.trim()
+        : "";
+
+    const { due_date, course_id } = req.body;
+
+    if (!isValidId(assignmentId)) {
+      await removeUploadedFile(req.file?.path);
+
+      return res.status(400).json({
+        message: "Invalid assignment ID.",
+      });
+    }
+
+    if (!title) {
+      await removeUploadedFile(req.file?.path);
+
       return res.status(400).json({
         message: "Assignment title is required.",
       });
     }
 
-    if (!course_id) {
+    if (title.length > 200 || description.length > 10000) {
+      await removeUploadedFile(req.file?.path);
+
       return res.status(400).json({
-        message: "Please select a course.",
+        message: "The title or description exceeds the allowed length.",
       });
     }
 
-    if (!due_date) {
+    if (!isValidId(course_id)) {
+      await removeUploadedFile(req.file?.path);
+
       return res.status(400).json({
-        message: "Due date is required.",
+        message: "Please select a valid course.",
       });
     }
 
-    // =================================================
-    // CHECK ASSIGNMENT
-    // =================================================
+    if (
+      typeof due_date !== "string" ||
+      !due_date.trim() ||
+      !Number.isFinite(Date.parse(due_date))
+    ) {
+      await removeUploadedFile(req.file?.path);
 
-    const assignmentResult = await pool.query(
+      return res.status(400).json({
+        message: "A valid due date is required.",
+      });
+    }
+
+    // Retrieve the existing attachment before updating the record.
+    const existingResult = await pool.query(
       `
-      SELECT
-        id,
-        file_path
+      SELECT id, file_path
       FROM assignments
       WHERE id = $1
       `,
-      [id]
+      [assignmentId]
     );
 
-    if (assignmentResult.rows.length === 0) {
+    if (existingResult.rows.length === 0) {
+      await removeUploadedFile(req.file?.path);
+
       return res.status(404).json({
         message: "Assignment not found.",
       });
     }
 
-    const oldAssignment =
-      assignmentResult.rows[0];
-
-    // =================================================
-    // CHECK COURSE
-    // =================================================
-
+    // Verify that the destination course exists.
     const courseResult = await pool.query(
-      `
-      SELECT id
-      FROM courses
-      WHERE id = $1
-      `,
-      [course_id]
+      "SELECT id FROM courses WHERE id = $1",
+      [Number(course_id)]
     );
 
     if (courseResult.rows.length === 0) {
+      await removeUploadedFile(req.file?.path);
+
       return res.status(404).json({
         message: "Selected course was not found.",
       });
     }
 
-    // =================================================
-    // FILE UPDATE
-    // =================================================
+    const oldAssignment = existingResult.rows[0];
+    const newFilePath = req.file?.path || null;
+    const newFileName = req.file
+      ? path.basename(req.file.originalname)
+      : null;
 
-    let fileName = null;
-    let filePath = null;
+    if (newFilePath && !isPathInsideUploads(newFilePath)) {
+      await removeUploadedFile(newFilePath);
 
-    if (req.file) {
-      fileName = req.file.originalname;
-      filePath = req.file.path;
-    } else {
-      fileName = null;
-      filePath = null;
+      return res.status(400).json({
+        message: "The uploaded file location is invalid.",
+      });
     }
 
-    // =================================================
-    // UPDATE
-    // =================================================
-
+    // COALESCE preserves the current attachment when no replacement is uploaded.
     const result = await pool.query(
       `
       UPDATE assignments
@@ -477,62 +522,35 @@ const updateAssignment = async (req, res) => {
       RETURNING *
       `,
       [
-        title.trim(),
-        description?.trim() || null,
+        title,
+        description || null,
         due_date,
-        course_id,
-        fileName,
-        filePath,
-        id,
+        Number(course_id),
+        newFileName,
+        newFilePath,
+        assignmentId,
       ]
     );
 
-    // Delete old file only after successful update
+    // Delete the old attachment only after the database update succeeds.
     if (
-      req.file &&
+      newFilePath &&
       oldAssignment.file_path &&
-      oldAssignment.file_path !== filePath
+      oldAssignment.file_path !== newFilePath
     ) {
-      try {
-        if (
-          fs.existsSync(oldAssignment.file_path)
-        ) {
-          fs.unlinkSync(
-            oldAssignment.file_path
-          );
-        }
-      } catch (deleteError) {
-        console.error(
-          "Error deleting old assignment file:",
-          deleteError
-        );
-      }
+      await removeUploadedFile(oldAssignment.file_path);
     }
 
-    res.json({
+    return res.json({
       message: "Assignment updated successfully.",
-      assignment: result.rows[0],
+      assignment: publicAssignment(result.rows[0]),
     });
   } catch (error) {
-    console.error(
-      "Error updating assignment:",
-      error
-    );
+    await removeUploadedFile(req.file?.path);
 
-    if (req.file?.path) {
-      try {
-        if (fs.existsSync(req.file.path)) {
-          fs.unlinkSync(req.file.path);
-        }
-      } catch (deleteError) {
-        console.error(
-          "Error deleting uploaded assignment file:",
-          deleteError
-        );
-      }
-    }
+    console.error("Error updating assignment:", error.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to update assignment.",
     });
   }
@@ -544,21 +562,26 @@ const updateAssignment = async (req, res) => {
 
 const deleteAssignment = async (req, res) => {
   try {
-    const { id } = req.params;
+    if (!requireInstructor(req, res)) {
+      return;
+    }
 
-    // =================================================
-    // GET ASSIGNMENT FILE
-    // =================================================
+    const assignmentId = Number(req.params.id);
 
+    if (!isValidId(assignmentId)) {
+      return res.status(400).json({
+        message: "Invalid assignment ID.",
+      });
+    }
+
+    // Get the attachment path before removing the database record.
     const assignmentResult = await pool.query(
       `
-      SELECT
-        id,
-        file_path
+      SELECT id, file_path
       FROM assignments
       WHERE id = $1
       `,
-      [id]
+      [assignmentId]
     );
 
     if (assignmentResult.rows.length === 0) {
@@ -567,52 +590,34 @@ const deleteAssignment = async (req, res) => {
       });
     }
 
-    const assignment =
-      assignmentResult.rows[0];
+    const assignment = assignmentResult.rows[0];
 
-    // =================================================
-    // DELETE DATABASE RECORD
-    // =================================================
-
+    // Delete the database record first. If this fails, keep the file.
     await pool.query(
-      `
-      DELETE FROM assignments
-      WHERE id = $1
-      `,
-      [id]
+      "DELETE FROM assignments WHERE id = $1",
+      [assignmentId]
     );
 
-    // =================================================
-    // DELETE FILE
-    // =================================================
-
+    // Delete only files inside the trusted upload directory.
     if (assignment.file_path) {
-      try {
-        if (
-          fs.existsSync(assignment.file_path)
-        ) {
-          fs.unlinkSync(
-            assignment.file_path
-          );
-        }
-      } catch (deleteError) {
+      if (isPathInsideUploads(assignment.file_path)) {
+        await removeUploadedFile(assignment.file_path);
+      } else {
+        // Do not delete an unexpected path.
         console.error(
-          "Error deleting assignment file:",
-          deleteError
+          "Skipped deletion of assignment file outside uploads directory.",
+          { assignmentId }
         );
       }
     }
 
-    res.json({
+    return res.json({
       message: "Assignment deleted successfully.",
     });
   } catch (error) {
-    console.error(
-      "Error deleting assignment:",
-      error
-    );
+    console.error("Error deleting assignment:", error.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to delete assignment.",
     });
   }
@@ -624,55 +629,46 @@ const deleteAssignment = async (req, res) => {
 
 const downloadAssignment = async (req, res) => {
   try {
-    const { id } = req.params;
+    const assignmentId = Number(req.params.id);
+    const userId = req.user?.id;
+    const role = req.user?.role;
 
-    const userId = req.user.id;
-    const role = req.user.role;
+    if (!isValidId(assignmentId)) {
+      return res.status(400).json({
+        message: "Invalid assignment ID.",
+      });
+    }
+
+    if (!userId || !["student", "instructor"].includes(role)) {
+      return res.status(403).json({
+        message: "You are not authorized to download this file.",
+      });
+    }
 
     let result;
 
-    // =================================================
-    // INSTRUCTOR
-    // =================================================
-
     if (role === "instructor") {
+      // Instructors can download existing assignment attachments.
       result = await pool.query(
         `
-        SELECT
-          assignments.id,
-          assignments.file_name,
-          assignments.file_path
-
+        SELECT id, file_name, file_path
         FROM assignments
-
-        WHERE assignments.id = $1
+        WHERE id = $1
         `,
-        [id]
+        [assignmentId]
       );
-    }
-
-    // =================================================
-    // STUDENT
-    // =================================================
-
-    else {
+    } else {
+      // Students must be enrolled in the assignment's course.
       result = await pool.query(
         `
-        SELECT
-          assignments.id,
-          assignments.file_name,
-          assignments.file_path
-
-        FROM assignments
-
-        INNER JOIN course_enrollments
-          ON assignments.course_id =
-             course_enrollments.course_id
-
-        WHERE assignments.id = $1
-          AND course_enrollments.student_id = $2
+        SELECT a.id, a.file_name, a.file_path
+        FROM assignments AS a
+        INNER JOIN course_enrollments AS ce
+          ON ce.course_id = a.course_id
+        WHERE a.id = $1
+          AND ce.student_id = $2
         `,
-        [id, userId]
+        [assignmentId, userId]
       );
     }
 
@@ -682,61 +678,66 @@ const downloadAssignment = async (req, res) => {
       });
     }
 
-    const assignment =
-      result.rows[0];
+    const assignment = result.rows[0];
 
     if (!assignment.file_path) {
       return res.status(404).json({
-        message:
-          "This assignment does not have an attached file.",
+        message: "This assignment does not have an attached file.",
       });
     }
 
-    const filePath = path.resolve(
-      assignment.file_path
+    // Reject attempts to use paths outside the trusted upload directory.
+    if (!isPathInsideUploads(assignment.file_path)) {
+      console.error(
+        "Blocked assignment download with an invalid file path.",
+        { assignmentId }
+      );
+
+      return res.status(403).json({
+        message: "This file cannot be accessed.",
+      });
+    }
+
+    const filePath = path.resolve(assignment.file_path);
+
+    // Confirm that the attachment exists and is accessible.
+    try {
+      await fs.promises.access(filePath);
+    } catch {
+      return res.status(404).json({
+        message: "The assignment file could not be found.",
+      });
+    }
+
+    // Use only the filename for the browser download, never a directory path.
+    const downloadName = path.basename(
+      assignment.file_name || filePath
     );
 
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({
-        message:
-          "The assignment file could not be found on the server.",
-      });
-    }
+    return res.download(filePath, downloadName, (error) => {
+      if (error) {
+        console.error("Assignment download failed:", error.message);
 
-    res.download(
-      filePath,
-      assignment.file_name,
-      (error) => {
-        if (error) {
-          console.error(
-            "Error downloading assignment:",
-            error
-          );
-
-          if (!res.headersSent) {
-            res.status(500).json({
-              message:
-                "Failed to download assignment file.",
-            });
-          }
+        if (!res.headersSent) {
+          return res.status(500).json({
+            message: "Failed to download assignment file.",
+          });
         }
       }
-    );
-  } catch (error) {
-    console.error(
-      "Error downloading assignment:",
-      error
-    );
-
-    res.status(500).json({
-      message:
-        "Failed to download assignment file.",
     });
+  } catch (error) {
+    console.error("Error downloading assignment:", error.message);
+
+    if (!res.headersSent) {
+      return res.status(500).json({
+        message: "Failed to download assignment file.",
+      });
+    }
   }
 };
 
 // =====================================================
-// EXPORT
+// EXPORT CONTROLLER FUNCTIONS
 // =====================================================
 
 module.exports = {
