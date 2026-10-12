@@ -1,25 +1,114 @@
 // submissionController.js
-// Handles assignment submissions, submission history, and grading.
+// Handles assignment submissions, secure file downloads, submission
+// history, and instructor grading.
 
 const pool = require("../config/db");
 const fs = require("fs/promises");
 const path = require("path");
 
 // =====================================================
-// HELPER: REMOVE AN UPLOADED FILE
+// APPROVED FILE DIRECTORIES
 // =====================================================
 
-// Multer saves a file before the controller runs. Remove it
-// when validation or database operations fail.
+// New submissions belong in this directory.
+const submissionsDirectory = path.resolve(
+  __dirname,
+  "..",
+  "uploads",
+  "submissions"
+);
+
+// Older submissions may still be stored here because the previous
+// middleware used the learning-materials directory.
+const legacyMaterialsDirectory = path.resolve(
+  __dirname,
+  "..",
+  "uploads",
+  "materials"
+);
+
+// =====================================================
+// HELPER: VALIDATE DATABASE IDS
+// =====================================================
+
+function isValidId(id) {
+  return Number.isSafeInteger(id) && id > 0;
+}
+
+// =====================================================
+// HELPER: CHECK WHETHER A PATH IS INSIDE A DIRECTORY
+// =====================================================
+
+// Prevent path traversal such as ../../.env from being accepted.
+function isPathInsideDirectory(filePath, directory) {
+  const resolvedFile = path.resolve(filePath);
+  const resolvedDirectory = path.resolve(directory);
+  const relativePath = path.relative(resolvedDirectory, resolvedFile);
+
+  return (
+    relativePath !== "" &&
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relativePath)
+  );
+}
+
+// =====================================================
+// HELPER: RESOLVE AN APPROVED SUBMISSION FILE
+// =====================================================
+
+// Only allow files in the dedicated submissions directory or the
+// legacy materials directory. Never trust a database path by itself.
+function resolveSubmissionFile(filePath) {
+  if (typeof filePath !== "string" || !filePath.trim()) {
+    return null;
+  }
+
+  const resolvedPath = path.resolve(filePath);
+
+  const isInSubmissions = isPathInsideDirectory(
+    resolvedPath,
+    submissionsDirectory
+  );
+
+  const isInLegacyMaterials = isPathInsideDirectory(
+    resolvedPath,
+    legacyMaterialsDirectory
+  );
+
+  if (!isInSubmissions && !isInLegacyMaterials) {
+    return null;
+  }
+
+  return resolvedPath;
+}
+
+// =====================================================
+// HELPER: REMOVE A NEWLY UPLOADED SUBMISSION FILE
+// =====================================================
+
+// Only delete files from the dedicated submissions directory.
+// This prevents cleanup code from deleting unrelated server files.
 async function removeUploadedFile(filePath) {
   if (!filePath) return;
 
+  const resolvedPath = path.resolve(filePath);
+
+  if (
+    !isPathInsideDirectory(resolvedPath, submissionsDirectory)
+  ) {
+    console.error(
+      "Submission cleanup skipped: file is outside the submissions directory."
+    );
+    return;
+  }
+
   try {
-    await fs.unlink(filePath);
+    await fs.unlink(resolvedPath);
   } catch (error) {
     // ENOENT means the file is already gone.
     if (error.code !== "ENOENT") {
-      console.error("Unable to remove uploaded file:", error.message);
+      console.error("Unable to remove submission file:", error.message);
     }
   }
 }
@@ -35,10 +124,7 @@ async function submitAssignment(req, res) {
 
   try {
     // Validate the assignment ID before querying PostgreSQL.
-    if (
-      !Number.isSafeInteger(assignmentId) ||
-      assignmentId <= 0
-    ) {
+    if (!isValidId(assignmentId)) {
       await removeUploadedFile(uploadedFile?.path);
 
       return res.status(400).json({
@@ -46,7 +132,7 @@ async function submitAssignment(req, res) {
       });
     }
 
-    // Only student accounts may submit assignments.
+    // Only authenticated student accounts may submit assignments.
     if (req.user?.role !== "student") {
       await removeUploadedFile(uploadedFile?.path);
 
@@ -70,6 +156,20 @@ async function submitAssignment(req, res) {
       });
     }
 
+    // Ensure the uploaded file was stored in the intended directory.
+    const safeUploadedPath = resolveSubmissionFile(uploadedFile.path);
+
+    if (
+      !safeUploadedPath ||
+      !isPathInsideDirectory(safeUploadedPath, submissionsDirectory)
+    ) {
+      await removeUploadedFile(uploadedFile.path);
+
+      return res.status(400).json({
+        message: "Invalid submission file location.",
+      });
+    }
+
     // Verify that the assignment exists and the student is enrolled
     // in the course that owns the assignment.
     const assignmentResult = await pool.query(
@@ -89,11 +189,13 @@ async function submitAssignment(req, res) {
       await removeUploadedFile(uploadedFile.path);
 
       return res.status(404).json({
-        message: "Assignment not found or you are not enrolled in its course.",
+        message:
+          "Assignment not found or you are not enrolled in its course.",
       });
     }
 
-    // Check for an existing submission before inserting.
+    // Provide a friendly duplicate check. The database unique index
+    // must also enforce this rule against simultaneous requests.
     const existingResult = await pool.query(
       `
         SELECT id
@@ -113,8 +215,8 @@ async function submitAssignment(req, res) {
       });
     }
 
-    // Store the original filename for display and the generated
-    // server-side path for authorized file handling.
+    // Save the original filename for display and the generated
+    // server-side path for authorized download handling.
     const result = await pool.query(
       `
         INSERT INTO submissions (
@@ -130,7 +232,7 @@ async function submitAssignment(req, res) {
         assignmentId,
         studentId,
         path.basename(uploadedFile.originalname),
-        uploadedFile.path,
+        safeUploadedPath,
       ]
     );
 
@@ -148,7 +250,7 @@ async function submitAssignment(req, res) {
       });
     }
 
-    // Remove a file that was uploaded but could not be recorded.
+    // Remove newly uploaded files if saving the submission failed.
     await removeUploadedFile(uploadedFile?.path);
 
     console.error("Error submitting assignment:", error.message);
@@ -174,7 +276,7 @@ async function getMySubmissions(req, res) {
     }
 
     // Return only the authenticated student's submissions.
-    // Never send internal filesystem paths to the frontend.
+    // Never expose internal filesystem paths to the frontend.
     const result = await pool.query(
       `
         SELECT
@@ -211,15 +313,15 @@ async function getMySubmissions(req, res) {
 
 async function getAllSubmissions(req, res) {
   try {
-    // The route must also use authenticateToken and instructorMiddleware.
+    // Defense in depth: the route also uses instructorMiddleware.
     if (req.user?.role !== "instructor") {
       return res.status(403).json({
         message: "Instructor access required.",
       });
     }
 
-    // Return submission details needed for reviewing and grading.
-    // Filesystem paths and other internal storage details are excluded.
+    // Return the information needed for reviewing and grading.
+    // Filesystem paths remain private to the backend.
     const result = await pool.query(
       `
         SELECT
@@ -254,24 +356,133 @@ async function getAllSubmissions(req, res) {
 }
 
 // =====================================================
+// AUTHORIZED USER: DOWNLOAD A SUBMISSION
+// =====================================================
+
+async function downloadSubmission(req, res) {
+  const submissionId = Number(req.params.id);
+  const userId = req.user?.id;
+  const userRole = req.user?.role;
+
+  try {
+    // Reject invalid submission IDs.
+    if (!isValidId(submissionId)) {
+      return res.status(400).json({
+        message: "Invalid submission ID.",
+      });
+    }
+
+    // Only students and instructors may access submitted files.
+    if (userRole !== "student" && userRole !== "instructor") {
+      return res.status(403).json({
+        message: "Access denied.",
+      });
+    }
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "Authentication required.",
+      });
+    }
+
+    // Students can retrieve only their own submission.
+    // Instructors can retrieve submissions for grading.
+    const result = await pool.query(
+      `
+        SELECT id, student_id, file_name, file_path
+        FROM submissions
+        WHERE id = $1
+          AND ($2 = 'instructor' OR student_id = $3)
+        LIMIT 1
+      `,
+      [submissionId, userRole, userId]
+    );
+
+    if (result.rows.length === 0) {
+      // Use the same response for missing and unauthorized records
+      // so this endpoint does not reveal another student's submissions.
+      return res.status(404).json({
+        message: "Submission not found.",
+      });
+    }
+
+    const submission = result.rows[0];
+
+    // Allow only approved upload directories, including legacy files.
+    const safeFilePath = resolveSubmissionFile(submission.file_path);
+
+    if (!safeFilePath) {
+      console.error(
+        `Blocked unsafe file path for submission ${submissionId}.`
+      );
+
+      return res.status(404).json({
+        message: "Submission file is unavailable.",
+      });
+    }
+
+    // Verify that the file exists before attempting the download.
+    try {
+      await fs.access(safeFilePath);
+    } catch {
+      return res.status(404).json({
+        message: "Submission file is unavailable.",
+      });
+    }
+
+    // Use the stored display filename, never a user-supplied path.
+    const downloadName = path.basename(
+      submission.file_name || "submission"
+    );
+
+    return res.download(safeFilePath, downloadName, (error) => {
+      if (error) {
+        console.error(
+          "Error downloading submission:",
+          error.message
+        );
+
+        if (!res.headersSent) {
+          res.status(500).json({
+            message: "Failed to download submission.",
+          });
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Error downloading submission:", error.message);
+
+    if (!res.headersSent) {
+      return res.status(500).json({
+        message: "Failed to download submission.",
+      });
+    }
+  }
+}
+
+// =====================================================
 // INSTRUCTOR: GRADE A SUBMISSION
 // =====================================================
 
 async function gradeSubmission(req, res) {
+  // Keep the role check in the controller as well as the route.
+  if (req.user?.role !== "instructor") {
+    return res.status(403).json({
+      message: "Instructor access required.",
+    });
+  }
+
   const submissionId = Number(req.params.id);
   const { grade, feedback } = req.body;
 
   // Validate the submission ID.
-  if (
-    !Number.isSafeInteger(submissionId) ||
-    submissionId <= 0
-  ) {
+  if (!isValidId(submissionId)) {
     return res.status(400).json({
       message: "Invalid submission ID.",
     });
   }
 
-  // Validate the grade without accepting empty strings or null.
+  // Reject missing, nonnumeric, or out-of-range grades.
   if (
     grade === undefined ||
     grade === null ||
@@ -285,7 +496,7 @@ async function gradeSubmission(req, res) {
     });
   }
 
-  // Feedback is optional but must be a string of reasonable length.
+  // Feedback is optional but must be a string within the limit.
   if (
     feedback !== undefined &&
     feedback !== null &&
@@ -297,7 +508,6 @@ async function gradeSubmission(req, res) {
   }
 
   try {
-    // Update only the requested submission.
     const result = await pool.query(
       `
         UPDATE submissions
@@ -308,7 +518,7 @@ async function gradeSubmission(req, res) {
       `,
       [
         Number(grade),
-        feedback?.trim() || null,
+        typeof feedback === "string" ? feedback.trim() || null : null,
         submissionId,
       ]
     );
@@ -332,10 +542,14 @@ async function gradeSubmission(req, res) {
   }
 }
 
-// Export every controller referenced by submissionRoutes.js.
+// =====================================================
+// EXPORT CONTROLLERS
+// =====================================================
+
 module.exports = {
   submitAssignment,
   getMySubmissions,
   getAllSubmissions,
+  downloadSubmission,
   gradeSubmission,
 };
